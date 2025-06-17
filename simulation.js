@@ -10,7 +10,6 @@ const TICKS_PER_SECOND = 30;
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
 const SECONDS_PER_DAY = 86400;
-const MAX_SPEED_MULTIPLIER = 5000;
 
 const DISTRIBUTION_WEIGHTS = {
     wave: [0.01, 0.01, 0.01, 0.01, 0.02, 0.04, 0.06, 0.08, 0.09, 0.07, 0.06, 0.05, 0.05, 0.06, 0.07, 0.08, 0.09, 0.06, 0.04, 0.02, 0.01, 0.01, 0.01, 0.01],
@@ -29,6 +28,8 @@ const PROCESS_FLOW = [
     'access_control_departure'
 ];
 const serverPoints = {};
+let pathDefinitions = {};
+
 
 let truckIdCounter, simulationTime, trucks, animationFrameId, isRunning;
 let completedTrucksData = [];
@@ -41,6 +42,11 @@ function randomFloat(min, max) { return Math.random() * (max - min) + min; }
 function capitalizeWords(str) {
     return str.replace(/_/g, ' ').replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
 }
+
+function getPath(fromKey, toKey) {
+    return JSON.parse(JSON.stringify(pathDefinitions[`${fromKey}->${toKey}`] || []));
+}
+
 
 function generateHourlySchedule(totalTrucks, type, openingHour, closingHour) {
     const schedule = new Array(24).fill(0);
@@ -109,8 +115,7 @@ function updateParamsFromUI() {
     
     PARAMS.OPENING_HOUR = openingHour;
     PARAMS.CLOSING_HOUR = closingHour;
-    const speedPercent = parseInt(document.getElementById('speed-multiplier').value);
-    PARAMS.SPEED_MULTIPLIER = Math.floor((speedPercent / 100) * MAX_SPEED_MULTIPLIER);
+    PARAMS.SPEED_MULTIPLIER = parseInt(document.getElementById('speed-multiplier').value) || 500;
     if (PARAMS.SPEED_MULTIPLIER < 1) PARAMS.SPEED_MULTIPLIER = 1;
 }
 
@@ -137,20 +142,38 @@ function fullResetAndSetup() {
     
     const pointDefinitions = {
         // Arrival Flow
-        self_access_control_arrival: { name: 'self_access_control_arrival',  x: 150, y: 150, branch: { success_percent: PARAMS.BRANCHING.self_access_arrival_success_percent, success_path: 'self_arrival_handling', failure_path: 'access_control_arrival' }, travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_self_arrival_handling },
-        self_arrival_handling:     { name: 'self_arrival_handling',      x: 350, y: 150, branch: { success_percent: PARAMS.BRANCHING.arrival_success_percent, success_path: 'execution', failure_path: 'arrival_handling' }, travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_execution },
-        access_control_arrival:    { name: 'access_control_arrival',     x: 150, y: 450, next: 'self_arrival_handling',    travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_self_arrival_handling },
-        arrival_handling:          { name: 'arrival_handling',           x: 350, y: 450, next: 'execution',                travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_execution },
+        self_access_control_arrival: { name: 'self_access_control_arrival',  x: 150, y: 150, branch: { success_percent: PARAMS.BRANCHING.self_access_arrival_success_percent, success_path: 'self_arrival_handling', failure_path: 'access_control_arrival' }},
+        access_control_arrival:    { name: 'access_control_arrival',     x: 150, y: 450, next: 'self_arrival_handling'   },
+        self_arrival_handling:     { name: 'self_arrival_handling',      x: 350, y: 150, branch: { success_percent: PARAMS.BRANCHING.arrival_success_percent, success_path: 'execution', failure_path: 'arrival_handling' }},
+        arrival_handling:          { name: 'arrival_handling',           x: 350, y: 450, next: 'execution'               },
 
-        // Center point
-        execution:                 { name: 'execution',                  x: 650, y: 300, next: 'self_departure_handling',  travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_self_departure_handling },
+        // Center point - moved up and centered horizontally
+        execution:                 { name: 'execution',                  x: 600, y: 150, next: 'self_departure_handling' },
         
-        // --- UPDATED: Departure Flow now mirrors Arrival Flow ---
-        self_departure_handling:       { name: 'self_departure_handling',    x: 850, y: 150, branch: { success_percent: PARAMS.BRANCHING.departure_success_percent, success_path: 'self_access_control_departure', failure_path: 'departure_handling' }, travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_self_access_control_departure },
-        departure_handling:            { name: 'departure_handling',         x: 850, y: 450, next: 'self_access_control_departure', travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_self_access_control_departure },
-        self_access_control_departure: { name: 'self_access_control_departure', x: 1050, y: 150, branch: { success_percent: PARAMS.BRANCHING.self_access_departure_success_percent, success_path: 'access_control_departure', failure_path: 'access_control_departure'}, travelTime: PARAMS.TRAVEL_TIMES_MINUTES.to_access_control_departure },
-        access_control_departure:      { name: 'access_control_departure',   x: 1050, y: 450, next: 'exit',                     travelTime: 0.5 }
+        // Departure Flow - coordinates adjusted for balance
+        self_departure_handling:       { name: 'self_departure_handling',    x: 850, y: 150, branch: { success_percent: PARAMS.BRANCHING.departure_success_percent, success_path: 'self_access_control_departure', failure_path: 'departure_handling' }},
+        departure_handling:            { name: 'departure_handling',         x: 850, y: 450, next: 'self_access_control_departure'},
+        self_access_control_departure: { name: 'self_access_control_departure', x: 1050, y: 150, branch: { success_percent: PARAMS.BRANCHING.self_access_departure_success_percent, success_path: 'access_control_departure', failure_path: 'access_control_departure'}},
+        access_control_departure:      { name: 'access_control_departure',   x: 1050, y: 450, next: 'exit'}
     };
+    
+    const p = pointDefinitions;
+    pathDefinitions = {
+        'entry->self_access_control_arrival':   [p.self_access_control_arrival],
+        'self_access_control_arrival->self_arrival_handling': [p.self_arrival_handling],
+        'self_access_control_arrival->access_control_arrival': [p.access_control_arrival],
+        'access_control_arrival->self_arrival_handling':  [{x: p.self_arrival_handling.x, y: p.access_control_arrival.y}, p.self_arrival_handling],
+        'self_arrival_handling->execution':     [p.execution], // Now a straight line
+        'self_arrival_handling->arrival_handling':  [p.arrival_handling],
+        'arrival_handling->execution':        [{x: p.execution.x, y: p.arrival_handling.y}, p.execution], // Now a corner
+        'execution->self_departure_handling':   [p.self_departure_handling], // Now a straight line
+        'self_departure_handling->self_access_control_departure': [p.self_access_control_departure],
+        'self_departure_handling->departure_handling': [p.departure_handling],
+        'departure_handling->self_access_control_departure': [{x: p.self_access_control_departure.x, y:p.departure_handling.y }, p.self_access_control_departure],
+        'self_access_control_departure->access_control_departure': [p.access_control_departure],
+        'access_control_departure->exit':       [{x: canvas.width + 40, y: p.access_control_departure.y}],
+    };
+
 
     for (const key in pointDefinitions) {
         if (PROCESS_FLOW.includes(key)) {
@@ -169,23 +192,66 @@ class Truck {
         this.x = -40;
         this.y = 150;
         this.status = 'arriving';
-        this.destination = serverPoints.self_access_control_arrival;
-        this.targetX = serverPoints.self_access_control_arrival.x;
-        this.targetY = serverPoints.self_access_control_arrival.y;
-        const travelSeconds = Math.abs(this.destination.x - this.x) / 50;
-        this.finishTime = simulationTime + travelSeconds * TICKS_PER_SECOND;
+        this.destinationKey = 'self_access_control_arrival';
+        this.path = getPath('entry', this.destinationKey);
+        this.pathIndex = 0;
+        this.targetX = this.path[0].x;
+        this.targetY = this.path[0].y;
+        this.rotation = 0; 
         this.queueEnterTime = 0;
         this.creationTime = simulationTime;
         this.totalServiceTime = 0;
     }
+
+    setNewPath(fromKey, toKey) {
+        this.destinationKey = toKey;
+        this.path = getPath(fromKey, toKey);
+        this.pathIndex = 0;
+        if(this.path && this.path.length > 0) {
+            this.targetX = this.path[0].x;
+            this.targetY = this.path[0].y;
+            this.status = 'traveling';
+        } else {
+            this.status = 'finished';
+        }
+    }
+
     move() {
+        if (!this.path || this.pathIndex >= this.path.length) {
+            return;
+        }
+
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
+        
+        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+             this.rotation = Math.atan2(dy, dx);
+        }
+
         const speed = 3 * (PARAMS.SPEED_MULTIPLIER / 100) + 1;
         const distance = Math.sqrt(dx * dx + dy * dy);
+        
         if (distance < speed) {
             this.x = this.targetX;
             this.y = this.targetY;
+
+            this.pathIndex++;
+            if (this.pathIndex < this.path.length) {
+                this.targetX = this.path[this.pathIndex].x;
+                this.targetY = this.path[this.pathIndex].y;
+            } else {
+                if (this.status === 'exiting') {
+                    this.status = 'finished'; 
+                } else {
+                    this.status = 'queuing';
+                    const dest = serverPoints[this.destinationKey];
+                    if(dest) {
+                        dest.queue.push(this);
+                        this.queueEnterTime = simulationTime;
+                        if (dest.queue.length > dest.stats.maxQueueLength) dest.stats.maxQueueLength = dest.queue.length;
+                    }
+                }
+            }
         } else {
             this.x += (dx / distance) * speed;
             this.y += (dy / distance) * speed;
@@ -204,15 +270,8 @@ function update() {
     }
     
     trucks.forEach(truck => {
-        if (['arriving', 'traveling', 'exiting'].includes(truck.status)) truck.move();
-        if ((truck.status === 'arriving' || truck.status === 'traveling') && simulationTime >= truck.finishTime) {
-            if (truck.x === truck.targetX && truck.y === truck.y) {
-                truck.status = 'queuing';
-                const dest = truck.destination;
-                dest.queue.push(truck);
-                truck.queueEnterTime = simulationTime;
-                if (dest.queue.length > dest.stats.maxQueueLength) dest.stats.maxQueueLength = dest.queue.length;
-            }
+        if (truck.status === 'traveling' || truck.status === 'arriving' || truck.status === 'exiting') {
+            truck.move();
         }
     });
 
@@ -232,17 +291,14 @@ function update() {
                     } else {
                         nextPointName = point.next;
                     }
-                    const nextPoint = serverPoints[nextPointName] || { name: 'exit' };
-                    const travelDurationInTicks = point.travelTime * SECONDS_PER_MINUTE * TICKS_PER_SECOND;
-                    if (nextPoint.name === 'exit') {
-                        finishedTruck.status = 'exiting'; finishedTruck.targetX = canvas.width + 40; finishedTruck.targetY = finishedTruck.y;
-                        finishedTruck.finishTime = simulationTime + (travelDurationInTicks || 30 * TICKS_PER_SECOND);
+
+                    if (nextPointName === 'exit') {
                         const turnaroundTime = simulationTime - finishedTruck.creationTime;
                         completedTrucksData.push({ turnaroundTime: turnaroundTime });
+                        finishedTruck.setNewPath(pointName, 'exit'); 
+                        finishedTruck.status = 'exiting';
                     } else {
-                        finishedTruck.status = 'traveling'; finishedTruck.destination = nextPoint;
-                        finishedTruck.targetX = nextPoint.x; finishedTruck.targetY = nextPoint.y;
-                        finishedTruck.finishTime = simulationTime + travelDurationInTicks;
+                        finishedTruck.setNewPath(pointName, nextPointName);
                     }
                 }
             }
@@ -268,7 +324,38 @@ function update() {
             }
         }
     });
-    trucks = trucks.filter(truck => truck.x < canvas.width + 50);
+    trucks = trucks.filter(truck => truck.status !== 'finished');
+}
+
+function drawTruck(x, y, rotation, status) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    
+    const truckWidth = 24;
+    const truckHeight = 12;
+    
+    if (status === 'in_service') {
+         ctx.fillStyle = '#2ECC71'; 
+         ctx.shadowColor = '#58D68D';
+         ctx.shadowBlur = 15;
+    } else {
+         ctx.fillStyle = '#5DADE2'; 
+    }
+    
+    ctx.fillRect(-truckWidth / 2, -truckHeight / 2, truckWidth, truckHeight);
+    
+    ctx.fillStyle = '#34495E';
+    ctx.fillRect(truckWidth / 2 - 8, -truckHeight / 2, 8, truckHeight);
+
+    ctx.fillStyle = '#2C3E50';
+    ctx.fillRect(-truckWidth/2 + 2, -truckHeight/2 - 2, 6, 2); 
+    ctx.fillRect(-truckWidth/2 + 2, truckHeight/2, 6, 2); 
+    ctx.fillRect(truckWidth/2 - 8, -truckHeight/2 - 2, 6, 2); 
+    ctx.fillRect(truckWidth/2 - 8, truckHeight/2, 6, 2); 
+
+    ctx.restore();
+    ctx.shadowBlur = 0; 
 }
 
 function draw() {
@@ -284,16 +371,16 @@ function draw() {
     ctx.moveTo(p.access_control_arrival.x, p.access_control_arrival.y); ctx.lineTo(p.self_arrival_handling.x, p.self_arrival_handling.y);
     ctx.moveTo(p.self_arrival_handling.x, p.self_arrival_handling.y); ctx.lineTo(p.execution.x, p.execution.y);
     ctx.moveTo(p.self_arrival_handling.x, p.self_arrival_handling.y); ctx.lineTo(p.arrival_handling.x, p.arrival_handling.y);
-    ctx.moveTo(p.arrival_handling.x, p.arrival_handling.y); ctx.lineTo(p.execution.x, p.execution.y);
+    ctx.moveTo(p.arrival_handling.x, p.arrival_handling.y); ctx.lineTo(p.execution.x, p.execution.y); 
 
     // Connection to Departure
     ctx.moveTo(p.execution.x, p.execution.y); ctx.lineTo(p.self_departure_handling.x, p.self_departure_handling.y);
     
-    // --- UPDATED: Departure Flow drawing logic ---
-    ctx.moveTo(p.self_departure_handling.x, p.self_departure_handling.y); ctx.lineTo(p.self_access_control_departure.x, p.self_access_control_departure.y); // Success
-    ctx.moveTo(p.self_departure_handling.x, p.self_departure_handling.y); ctx.lineTo(p.departure_handling.x, p.departure_handling.y); // Failure
-    ctx.moveTo(p.departure_handling.x, p.departure_handling.y); ctx.lineTo(p.self_access_control_departure.x, p.self_access_control_departure.y); // Rejoin
-    ctx.moveTo(p.self_access_control_departure.x, p.self_access_control_departure.y); ctx.lineTo(p.access_control_departure.x, p.access_control_departure.y); // Connects final two points
+    // Departure Flow
+    ctx.moveTo(p.self_departure_handling.x, p.self_departure_handling.y); ctx.lineTo(p.self_access_control_departure.x, p.self_access_control_departure.y);
+    ctx.moveTo(p.self_departure_handling.x, p.self_departure_handling.y); ctx.lineTo(p.departure_handling.x, p.departure_handling.y);
+    ctx.moveTo(p.departure_handling.x, p.departure_handling.y); ctx.lineTo(p.self_access_control_departure.x, p.self_access_control_departure.y);
+    ctx.moveTo(p.self_access_control_departure.x, p.self_access_control_departure.y); ctx.lineTo(p.access_control_departure.x, p.access_control_departure.y);
 
     ctx.stroke();
     ctx.setLineDash([]); 
@@ -315,15 +402,7 @@ function draw() {
     
     trucks.forEach(truck => {
         if (truck.status === 'queuing') return; 
-        ctx.beginPath(); ctx.arc(truck.x, truck.y, 5, 0, 2 * Math.PI);
-        if (truck.status === 'in_service') {
-            const glowRadius = 7 + Math.sin(simulationTime / 10) * 2;
-            const glow = ctx.createRadialGradient(truck.x, truck.y, 0, truck.x, truck.y, glowRadius);
-            glow.addColorStop(0, 'rgba(46, 204, 113, 0.8)'); glow.addColorStop(1, 'rgba(46, 204, 113, 0)');
-            ctx.fillStyle = glow; ctx.fill();
-            ctx.beginPath(); ctx.arc(truck.x, truck.y, 5, 0, 2*Math.PI);
-        }
-        ctx.fillStyle = '#5DADE2'; ctx.fill();
+        drawTruck(truck.x, truck.y, truck.rotation, truck.status);
     });
 
     ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = 'bold 16px Arial'; ctx.fillStyle = 'white';
@@ -431,10 +510,21 @@ function startSimulation() {
     gameLoop();
 }
 
+// --- UPDATED: Default server counts changed as requested ---
 function generateControlInputs() {
     const serverContainer = document.getElementById('server-config-container');
     serverContainer.innerHTML = '';
-    const defaultServers = { execution: 10, default: 2 };
+    const defaultServers = {
+        self_access_control_arrival: 3,
+        access_control_arrival: 1,
+        self_arrival_handling: 3,
+        arrival_handling: 1,
+        execution: 10,
+        self_departure_handling: 3,
+        departure_handling: 1,
+        self_access_control_departure: 3,
+        access_control_departure: 1,
+    };
     const defaultServiceTimes = {
       self_access_control_arrival: {min: 0.5, max: 1.5},
       access_control_arrival: {min: 1, max: 3},
@@ -452,22 +542,81 @@ function generateControlInputs() {
         div.className = 'input-group';
         
         const displayName = capitalizeWords(pName);
-        const numServers = defaultServers[pName] || defaultServers.default;
+        const numServers = defaultServers[pName] || 1; // Fallback to 1
         const sTimes = defaultServiceTimes[pName] || {min: 1, max: 2};
 
         div.innerHTML = `
-            <div class="server-inputs">
-                <label for="s-${pName}">${displayName}</label>
-                <input type="number" id="s-${pName}" value="${numServers}" min="1" title="Number of Servers">
-            </div>
-            <div class="service-time-inputs">
-                <input type="number" id="st-min-${pName}" value="${sTimes.min}" min="0" step="0.5" title="Min Service Time (mins)">
-                <input type="number" id="st-max-${pName}" value="${sTimes.max}" min="0" step="0.5" title="Max Service Time (mins)">
+            <label style="font-weight: 500; margin-bottom: 8px;">${displayName}</label>
+            <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 15px; align-items: end;">
+                <div>
+                    <label for="s-${pName}" style="font-size: 0.85em; color: #6c757d; display: block; margin-bottom: 4px;">Servers</label>
+                    <input type="number" id="s-${pName}" value="${numServers}" min="1" title="Number of Servers" style="background-color: #eaf2ff; border-color: #b0cfff;">
+                </div>
+                <div>
+                    <label for="st-min-${pName}" style="font-size: 0.85em; color: #6c757d; display: block; margin-bottom: 4px;">Service Time (Min / Max)</label>
+                    <div class="service-time-inputs" style="display: flex; gap: 8px;">
+                        <input type="number" id="st-min-${pName}" value="${sTimes.min}" min="0" step="0.5" title="Min Service Time (mins)">
+                        <input type="number" id="st-max-${pName}" value="${sTimes.max}" min="0" step="0.5" title="Max Service Time (mins)">
+                    </div>
+                </div>
             </div>
         `;
         serverContainer.appendChild(div);
     });
 }
+
+function setBaselineParameters() {
+    try {
+        // General
+        document.getElementById('total-trucks-day').value = 150;
+        document.getElementById('distribution-type').value = 'wave';
+        document.getElementById('opening-hour').value = 6;
+        document.getElementById('closing-hour').value = 22;
+
+        // Branching
+        document.getElementById('branch-self-access-arrival-success').value = 75;
+        document.getElementById('branch-arrival-success').value = 75;
+        document.getElementById('branch-departure-success').value = 75;
+        document.getElementById('branch-self-access-departure-success').value = 75;
+
+        // Travel Times
+        document.getElementById('tt-to-execution').value = 7;
+        document.getElementById('tt-to-self_departure_handling').value = 7;
+        document.getElementById('tt-to-access_control_arrival').value = 2;
+        document.getElementById('tt-to-self_arrival_handling').value = 2;
+        document.getElementById('tt-to-self_access_control_departure').value = 2;
+        document.getElementById('tt-to-access_control_departure').value = 2;
+        
+        // --- UPDATED: Set server counts programmatically ---
+        const serverCounts = {
+            self_access_control_arrival: 3,
+            access_control_arrival: 1,
+            self_arrival_handling: 3,
+            arrival_handling: 1,
+            execution: 10,
+            self_departure_handling: 3,
+            departure_handling: 1,
+            self_access_control_departure: 3,
+            access_control_departure: 1,
+        };
+        for(const serverId in serverCounts) {
+            document.getElementById(`s-${serverId}`).value = serverCounts[serverId];
+        }
+
+
+        // Manually update the schedule display to reflect new defaults
+        const totalTrucks = parseInt(document.getElementById('total-trucks-day').value);
+        const distType = document.getElementById('distribution-type').value;
+        const openingHour = parseInt(document.getElementById('opening-hour').value);
+        const closingHour = parseInt(document.getElementById('closing-hour').value);
+        PARAMS.HOURLY_ARRIVALS = generateHourlySchedule(totalTrucks, distType, openingHour, closingHour);
+        document.getElementById('schedule-display').textContent = PARAMS.HOURLY_ARRIVALS.join(', ');
+
+    } catch (e) {
+        console.error("Could not set baseline parameters. Are all control panel elements in the HTML?", e);
+    }
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
     generateControlInputs();
@@ -475,11 +624,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const setupOptionSelectors = () => {
         const speedControl = document.getElementById('speed-multiplier');
         if(!speedControl) return;
-        for (let i = 5; i <= 100; i += 5) { const option = document.createElement('option'); option.value = i; option.textContent = `${i*50}x`; speedControl.appendChild(option); }
-        speedControl.value = "100";
+
+        speedControl.innerHTML = ''; 
+
+        const speedSteps = [1, 5, 10, 25, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000];
+        
+        speedSteps.forEach(speed => {
+             const option = document.createElement('option'); 
+             option.value = speed; 
+             option.textContent = `${speed}x`; 
+             speedControl.appendChild(option);
+        });
+
+        speedControl.value = "5000"; 
     };
 
     setupOptionSelectors();
+    setBaselineParameters(); 
     
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');

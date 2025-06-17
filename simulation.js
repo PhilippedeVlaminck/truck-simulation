@@ -510,7 +510,6 @@ function startSimulation() {
     gameLoop();
 }
 
-// --- UPDATED: Default server counts changed as requested ---
 function generateControlInputs() {
     const serverContainer = document.getElementById('server-config-container');
     serverContainer.innerHTML = '';
@@ -587,7 +586,6 @@ function setBaselineParameters() {
         document.getElementById('tt-to-self_access_control_departure').value = 2;
         document.getElementById('tt-to-access_control_departure').value = 2;
         
-        // --- UPDATED: Set server counts programmatically ---
         const serverCounts = {
             self_access_control_arrival: 3,
             access_control_arrival: 1,
@@ -617,6 +615,70 @@ function setBaselineParameters() {
     }
 }
 
+// --- NEW: Export function and its helper ---
+function exportResults() {
+    let csvContent = "data:text/csv;charset=utf-8,";
+
+    // --- Settings Section ---
+    csvContent += "Simulation Settings\n\n";
+    csvContent += "Parameter,Value\n";
+    csvContent += `Total Trucks per Day,${document.getElementById('total-trucks-day').value}\n`;
+    csvContent += `Arrival Distribution,${document.getElementById('distribution-type').selectedOptions[0].text}\n`;
+    csvContent += `Operating Hours,${document.getElementById('opening-hour').value}:00 - ${document.getElementById('closing-hour').value}:00\n`;
+    csvContent += "\n";
+    
+    csvContent += "Branching Success Rates (%)\n";
+    csvContent += "Branch,Success Rate\n";
+    csvContent += `Self Access Arrival,${PARAMS.BRANCHING.self_access_arrival_success_percent}\n`;
+    csvContent += `Self Arrival,${PARAMS.BRANCHING.arrival_success_percent}\n`;
+    csvContent += `Self Departure,${PARAMS.BRANCHING.departure_success_percent}\n`;
+    csvContent += `Self Access Departure,${PARAMS.BRANCHING.self_access_departure_success_percent}\n`;
+    csvContent += "\n";
+
+    csvContent += "Server Configurations\n";
+    csvContent += "Server Point,Number of Servers,Min Service (m),Max Service (m)\n";
+    PROCESS_FLOW.forEach(pName => {
+        const displayName = capitalizeWords(pName);
+        const servers = PARAMS.SERVERS[pName];
+        const sMin = PARAMS.SERVICE_TIMES_MINUTES[pName].min;
+        const sMax = PARAMS.SERVICE_TIMES_MINUTES[pName].max;
+        csvContent += `${displayName},${servers},${sMin},${sMax}\n`;
+    });
+    csvContent += "\n\n";
+
+    // --- Results Section ---
+    csvContent += "Simulation Results\n\n";
+    const avgTurnaround = document.getElementById('avg-turnaround-time').textContent;
+    csvContent += `Overall Avg. Turnaround Time (hours),${avgTurnaround}\n\n`;
+
+    // Get table headers
+    const headers = Array.from(document.querySelectorAll("#results-table th")).map(th => th.textContent);
+    csvContent += headers.join(",") + "\n";
+    
+    // Get table rows
+    PROCESS_FLOW.forEach(pName => {
+        let row = [];
+        row.push(`"${capitalizeWords(pName)}"`); // Add quotes in case of commas in name
+        row.push(document.getElementById(`q-curr-${pName}`).textContent);
+        row.push(document.getElementById(`q-max-${pName}`).textContent);
+        row.push(document.getElementById(`wait-avg-${pName}`).textContent);
+        row.push(document.getElementById(`wait-max-${pName}`).textContent);
+        row.push(document.getElementById(`svc-avg-${pName}`).textContent);
+        row.push(document.getElementById(`util-24h-${pName}`).textContent);
+        row.push(document.getElementById(`util-open-${pName}`).textContent);
+        row.push(document.getElementById(`processed-${pName}`).textContent);
+        csvContent += row.join(",") + "\n";
+    });
+
+    // --- Trigger Download ---
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "truck-simulation-report.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     generateControlInputs();
@@ -641,6 +703,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupOptionSelectors();
     setBaselineParameters(); 
+    
+    // --- Add Export Button ---
+    const resultsPanel = document.getElementById('results-panel');
+    if (resultsPanel) {
+        const exportBtn = document.createElement('button');
+        exportBtn.textContent = 'Export Results (CSV)';
+        exportBtn.className = 'sim-button'; // Use existing button styling
+        exportBtn.style.backgroundColor = 'var(--primary-color)';
+        exportBtn.style.marginTop = '20px';
+        exportBtn.style.display = 'block';
+        exportBtn.style.width = 'fit-content';
+        exportBtn.style.margin = '20px auto 0';
+
+        exportBtn.addEventListener('click', exportResults);
+        resultsPanel.appendChild(exportBtn);
+    }
     
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');

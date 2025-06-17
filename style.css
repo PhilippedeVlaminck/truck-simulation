@@ -1,0 +1,270 @@
+/* =================================================================
+   --- Global Styles & Variables ---
+   ================================================================= */
+:root {
+    --primary-color: #3b82f6; /* A calmer blue */
+    --primary-hover-color: #2563eb;
+    --background-color: #f4f7fa; /* Lighter grey */
+    --panel-background: #ffffff;
+    --text-color: #1f2937;
+    --label-color: #4b5563;
+    --border-color: #e5e7eb;
+    --success-color: #22c55e;
+    --success-hover-color: #16a34a;
+    --danger-color: #ef4444;
+    --danger-hover-color: #dc2626;
+    --reset-color: #f59e0b;
+    --reset-hover-color: #d97706;
+    --shadow-color: rgba(0, 0, 0, 0.05);
+    --input-focus-ring: #a5b4fc;
+}
+
+/* =================================================================
+   --- Base & Typography ---
+   ================================================================= */
+body { 
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 24px;
+    line-height: 1.6;
+}
+
+h2 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 24px;
+    color: var(--primary-color);
+    text-align: center;
+}
+
+legend {
+    font-weight: 600;
+    color: var(--primary-color);
+    padding: 0 10px;
+    font-size: 1.1rem;
+}
+
+/* =================================================================
+   --- Layout Containers ---
+   ================================================================= */
+.main-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 1600px;
+    width: 100%;
+}
+
+#control-panel, #results-panel, #simulation-container {
+    background: var(--panel-background);
+    padding: 24px;
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 8px 16px -4px var(--shadow-color);
+    width: 100%;
+    box-sizing: border-box;
+    transition: all 0.3s ease-in-out;
+}
+
+.config-grid { 
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px; 
+}
+
+fieldset { 
+    border: 1px solid var(--border-color); 
+    border-radius: 12px; 
+    padding: 20px; 
+    margin-bottom: 10px; 
+}
+
+/* =================================================================
+   --- Form & Input Controls ---
+   ================================================================= */
+.input-group { 
+    margin-bottom: 16px; 
+}
+
+.input-group label { 
+    font-size: 0.9rem; 
+    margin-bottom: 8px; 
+    color: var(--label-color); 
+    display: block; 
+    font-weight: 500; 
+}
+
+.input-group select, .input-group input { 
+    padding: 12px; 
+    border-radius: 8px; 
+    border: 1px solid var(--border-color); 
+    width: 100%; 
+    box-sizing: border-box;
+    background-color: #f9fafb;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-group select:focus, .input-group input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--input-focus-ring);
+}
+
+.time-inputs, .hour-inputs, .server-inputs, .service-time-inputs { 
+    display: flex; 
+    gap: 12px; 
+    align-items: center; 
+}
+
+#schedule-display { 
+    font-family: 'Fira Code', monospace; 
+    font-size: 0.9em; 
+    background-color: #f8f9fa; 
+    padding: 12px; 
+    border-radius: 8px; 
+    word-wrap: break-word; 
+    border: 1px solid var(--border-color); 
+    min-height: 40px; 
+    margin-top: 10px;
+    color: #374151;
+}
+
+/* =================================================================
+   --- Buttons ---
+   ================================================================= */
+.button-container { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 16px; 
+    margin-top: 24px; 
+}
+
+.sim-button { 
+    padding: 14px; 
+    color: white; 
+    font-size: 1.1em; 
+    font-weight: 600; 
+    border: none; 
+    border-radius: 8px; 
+    cursor: pointer; 
+    transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.sim-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.sim-button:active { 
+    transform: translateY(0px);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+#start-btn { background-color: var(--success-color); }
+#start-btn:hover { background-color: var(--success-hover-color); }
+#stop-btn { background-color: var(--danger-color); }
+#stop-btn:hover { background-color: var(--danger-hover-color); }
+
+#stop-btn.reset-mode { background-color: var(--reset-color); color: #1f2937;}
+#stop-btn.reset-mode:hover { background-color: var(--reset-hover-color);}
+
+.sim-button:disabled { 
+    background-color: #9ca3af; 
+    cursor: not-allowed; 
+    transform: none; 
+    box-shadow: none;
+}
+
+/* =================================================================
+   --- Canvas & Simulation Area ---
+   ================================================================= */
+canvas { 
+    border: 1px solid var(--border-color); 
+    width: 100%; 
+    height: auto;
+    aspect-ratio: 1200 / 600;
+    border-radius: 12px;
+    /* Removed background-color to let the container handle it */
+}
+
+#simulation-container {
+    padding: 16px;
+    background-color: #374151; /* Darker background for canvas */
+}
+
+/* =================================================================
+   --- Results Table ---
+   ================================================================= */
+#results-table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    margin-top: 16px;
+}
+
+#results-table th, #results-table td { 
+    border-bottom: 1px solid var(--border-color); 
+    padding: 12px; 
+    text-align: right; 
+    font-size: 0.9rem; 
+    white-space: nowrap;
+}
+
+#results-table th { 
+    background-color: #f9fafb; 
+    font-weight: 600; 
+    color: var(--label-color); 
+    text-align: center; 
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+#results-table tr:last-child td { 
+    border-bottom: none; 
+}
+
+#results-table tr:hover {
+    background-color: #f9fafb;
+}
+
+#results-table td:first-child { 
+    text-align: left; 
+    font-weight: 500; 
+}
+
+.overall-stats { 
+    text-align: center; 
+    font-size: 1.25rem; 
+    margin-top: 24px; 
+    padding-top: 24px; 
+    border-top: 2px solid var(--primary-color); 
+}
+
+/* =================================================================
+   --- Responsive Design ---
+   ================================================================= */
+@media (max-width: 768px) {
+    body {
+        padding: 16px;
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    .config-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #results-table th, #results-table td { 
+        padding: 8px;
+        font-size: 0.8rem;
+    }
+}

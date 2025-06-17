@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interactive Truck Terminal Simulation</title>
     <style>
         :root {
@@ -14,7 +15,7 @@
             --success-color: #198754;
             --danger-color: #dc3545;
             --reset-color: #ffc107;
-            --shadow-color: rgba(0, 0, 0, 0.08);
+            --shadow-color: rgba(0, 0, 0, 0.1);
         }
         body { 
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -27,48 +28,56 @@
             padding: 20px;
         }
         .main-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
             max-width: 1450px;
             width: 100%;
         }
-        #control-panel {
+        #control-panel, #results-panel {
             background: var(--panel-background);
             padding: 20px;
             border-radius: 12px;
             box-shadow: 0 4px 12px var(--shadow-color);
-            margin-bottom: 20px;
+            width: 100%;
+            box-sizing: border-box;
         }
-        #control-panel h2 { text-align: center; margin-top: 0; margin-bottom: 20px; color: var(--primary-color); font-weight: 600; }
-        .config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
-        fieldset { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 15px; }
+        #control-panel h2, #results-panel h2 { text-align: center; margin-top: 0; margin-bottom: 20px; color: var(--primary-color); font-weight: 600; }
+        .config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+        fieldset { border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 10px; }
         legend { font-weight: 600; color: var(--primary-color); padding: 0 10px; }
-        
-        /* NEW: Compact grid for panels with many items */
-        .inner-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px 15px;
-        }
-
         .input-group { margin-bottom: 12px; }
-        .input-group label { font-size: 0.85em; margin-bottom: 5px; color: var(--label-color); display: block; font-weight: 500; }
-        .input-group select, .input-group input { padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box; }
-        .time-inputs { display: flex; gap: 8px; }
-        #schedule-display { font-family: monospace; font-size: 0.9em; background-color: #f8f9fa; padding: 10px; border-radius: 6px; word-wrap: break-word; border: 1px solid #dee2e6; min-height: 40px; }
+        .input-group label { font-size: 0.9em; margin-bottom: 6px; color: var(--label-color); display: block; font-weight: 500; }
+        .input-group select, .input-group input { padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box; }
+        .time-inputs, .hour-inputs, .server-inputs, .service-time-inputs { display: flex; gap: 8px; align-items: center; }
+        .service-time-inputs input { width: 50%; }
+        .server-inputs label { flex-basis: 220px; font-weight: normal; font-size: 0.85em }
+        #schedule-display { font-family: monospace; font-size: 0.9em; background-color: #f8f9fa; padding: 10px; border-radius: 6px; word-wrap: break-word; border: 1px solid var(--border-color); min-height: 40px; margin-top: 10px; }
         
         .button-container { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
-        .sim-button { padding: 12px; color: white; font-size: 1.1em; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; }
+        .sim-button { padding: 12px; color: white; font-size: 1.1em; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: background-color 0.2s, transform 0.1s; }
+        .sim-button:active { transform: translateY(1px); }
         #start-btn { background-color: var(--success-color); }
+        #start-btn:hover { background-color: #157347; }
         #stop-btn { background-color: var(--danger-color); }
+        #stop-btn:hover { background-color: #bb2d3b; }
         #stop-btn.reset-mode { background-color: var(--reset-color); color: #000;}
-        .sim-button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #stop-btn.reset-mode:hover { background-color: #ffca2c;}
+        .sim-button:disabled { background-color: #6c757d; cursor: not-allowed; transform: none; }
 
-        #simulation-container { display: flex; flex-direction: column; gap: 20px; align-items: center; }
-        canvas { border: 1px solid var(--border-color); background-color: #ffffff; width: 1000px; height: 600px; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color); }
-        #results-panel { background: var(--panel-background); padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px var(--shadow-color); width: 1000px; box-sizing: border-box; }
-        #results-panel h2 { text-align: center; margin-top: 0; color: var(--primary-color); font-weight: 600; }
+        canvas { 
+            border: 1px solid var(--border-color); 
+            background-color: var(--panel-background); 
+            width: 100%; 
+            height: auto;
+            aspect-ratio: 1200 / 600;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px var(--shadow-color);
+        }
+       
         #results-table { width: 100%; border-collapse: collapse; }
         #results-table th, #results-table td { border-bottom: 1px solid var(--border-color); padding: 10px 8px; text-align: right; font-size: 0.9em; }
-        #results-table th { background-color: #f8f9fa; font-weight: 600; color: var(--label-color); }
+        #results-table th { background-color: #f8f9fa; font-weight: 600; color: var(--label-color); text-align: center; }
         #results-table tr:last-child td { border-bottom: none; }
         #results-table td:first-child { text-align: left; font-weight: 500; }
         .overall-stats { text-align: center; font-size: 1.1em; margin-top: 20px; padding-top: 15px; border-top: 2px solid var(--primary-color); }
@@ -80,71 +89,122 @@
             <h2>Simulation Controls</h2>
             <div class="config-grid">
                 <fieldset>
-                    <legend>Servers</legend>
-                    <div class="inner-grid">
-                        <div class="input-group"><label for="s-access_control_arrival">Access Control Arrival</label><select id="s-access_control_arrival"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select></div>
-                        <div class="input-group"><label for="s-self_arrival_handling">Self Arrival Handling</label><select id="s-self_arrival_handling"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select></div>
-                        <div class="input-group"><label for="s-arrival_handling">Arrival Handling (Rework)</label><select id="s-arrival_handling"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
-                        <div class="input-group"><label for="s-execution">Execution</label><select id="s-execution"></select></div>
-                        <div class="input-group"><label for="s-self_departure_handling">Self Departure Handling</label><select id="s-self_departure_handling"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select></div>
-                        <div class="input-group"><label for="s-departure_handling">Departure Handling (Rework)</label><select id="s-departure_handling"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select></div>
-                        <div class="input-group"><label for="s-access_control_departure">Access Control Departure</label><select id="s-access_control_departure"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select></div>
+                    <legend>Arrival Schedule & Speed</legend>
+                    <div class="input-group">
+                        <label for="total-trucks-day">Total Trucks per Day</label>
+                        <input type="number" id="total-trucks-day" value="300" min="1">
                     </div>
-                </fieldset>
-                
-                <fieldset>
-                    <legend>Service Times (min)</legend>
-                    <div class="inner-grid">
-                        <div class="input-group"><label>Access Ctrl. Arrival</label><div class="time-inputs"><input type="number" id="st-min-access_control_arrival" value="1" step="0.1"><input type="number" id="st-max-access_control_arrival" value="2" step="0.1"></div></div>
-                        <div class="input-group"><label>Self Arrival</label><div class="time-inputs"><input type="number" id="st-min-self_arrival_handling" value="3" step="0.1"><input type="number" id="st-max-self_arrival_handling" value="5" step="0.1"></div></div>
-                        <div class="input-group"><label>Arrival (Rework)</label><div class="time-inputs"><input type="number" id="st-min-arrival_handling" value="2" step="0.1"><input type="number" id="st-max-arrival_handling" value="4" step="0.1"></div></div>
-                        <div class="input-group"><label>Execution</label><div class="time-inputs"><input type="number" id="st-min-execution" value="5" step="0.1"><input type="number" id="st-max-execution" value="10" step="0.1"></div></div>
-                        <div class="input-group"><label>Self Departure</label><div class="time-inputs"><input type="number" id="st-min-self_departure_handling" value="1.5" step="0.1"><input type="number" id="st-max-self_departure_handling" value="3" step="0.1"></div></div>
-                        <div class="input-group"><label>Departure (Rework)</label><div class="time-inputs"><input type="number" id="st-min-departure_handling" value="3" step="0.1"><input type="number" id="st-max-departure_handling" value="5" step="0.1"></div></div>
-                        <div class="input-group"><label>Access Ctrl. Departure</label><div class="time-inputs"><input type="number" id="st-min-access_control_departure" value="0.5" step="0.1"><input type="number" id="st-max-access_control_departure" value="1" step="0.1"></div></div>
+                    <div class="input-group">
+                        <label for="distribution-type">Arrival Distribution</label>
+                        <select id="distribution-type">
+                            <option value="even">Evenly Distributed</option>
+                            <option value="wave" selected>Wave Pattern</option>
+                            <option value="spike">Morning Spike</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Operating Hours (24h format)</label>
+                        <div class="hour-inputs">
+                            <input type="number" id="opening-hour" value="6" min="0" max="23" title="Opening Hour">
+                            <input type="number" id="closing-hour" value="20" min="1" max="24" title="Closing Hour">
+                        </div>
+                    </div>
+                     <div class="input-group">
+                        <label for="speed-multiplier">Simulation Speed</label>
+                        <select id="speed-multiplier"></select>
+                    </div>
+                    <div class="input-group">
+                        <label>Generated Hourly Schedule:</label>
+                        <div id="schedule-display"></div>
                     </div>
                 </fieldset>
 
                 <fieldset>
-                    <legend>Travel Times (min)</legend>
-                    <div class="inner-grid">
-                        <div class="input-group"><label>To Self Arrival</label><input type="number" id="tt-to-self_arrival" value="0.5" step="0.1"></div>
-                        <div class="input-group"><label>To Execution</label><input type="number" id="tt-to-execution" value="1" step="0.1"></div>
-                        <div class="input-group"><label>To Self Departure</label><input type="number" id="tt-to-self_departure" value="1" step="0.1"></div>
-                        <div class="input-group"><label>To Access Ctrl. Departure</label><input type="number" id="tt-to-access_departure" value="0.5" step="0.1"></div>
+                    <legend>Branching & Travel Times (mins)</legend>
+                    <!-- Branching Success Rates -->
+                    <div class="input-group">
+                        <label for="branch-self-access-arrival-success">Self Access Arrival Success Rate (%)</label>
+                        <input type="number" id="branch-self-access-arrival-success" value="80" min="0" max="100">
                     </div>
-                </fieldset>
-                
-                <fieldset>
-                    <legend>Daily Arrival & Branching</legend>
-                    <div class="input-group"><label for="total-trucks-day">Total Trucks Per Day</label><input type="number" id="total-trucks-day" value="500" min="0"></div>
-                    <div class="input-group"><label for="distribution-type">Distribution Type</label><select id="distribution-type"><option value="wave">Wave (Office Hours)</option><option value="even">Evenly Distributed</option><option value="spike">Mid-day Spike</option></select></div>
-                    <div class="input-group"><label>Generated Hourly Schedule</label><div id="schedule-display"></div></div>
-                    <div class="input-group"><label for="branch-arrival-success">"Self Arrival" Success Rate (%)</label><input type="number" id="branch-arrival-success" value="70" min="0" max="100"></div>
-                     <div class="input-group"><label for="branch-departure-success">"Self Departure" Success Rate (%)</label><input type="number" id="branch-departure-success" value="80" min="0" max="100"></div>
+                    <div class="input-group">
+                        <label for="branch-arrival-success">Self Arrival Success Rate (%)</label>
+                        <input type="number" id="branch-arrival-success" value="95" min="0" max="100">
+                    </div>
+                    <div class="input-group">
+                        <label for="branch-departure-success">Self Departure Success Rate (%)</label>
+                        <input type="number" id="branch-departure-success" value="98" min="0" max="100">
+                    </div>
+                    <!-- NEW: Self Access Departure Success Rate -->
+                    <div class="input-group">
+                        <label for="branch-self-access-departure-success">Self Access Departure Success Rate (%)</label>
+                        <input type="number" id="branch-self-access-departure-success" value="90" min="0" max="100">
+                    </div>
+                     <hr style="border: 1px solid #eee; margin: 15px 0;">
+                    <!-- Travel Times -->
+                    <div class="input-group">
+                        <label for="tt-to-access_control_arrival">Travel to Access Control Arrival</label>
+                        <input type="number" id="tt-to-access_control_arrival" value="2" min="0" step="0.5">
+                    </div>
+                     <div class="input-group">
+                        <label for="tt-to-self_arrival_handling">Travel to Self Arrival Handling</label>
+                        <input type="number" id="tt-to-self_arrival_handling" value="1.5" min="0" step="0.5">
+                    </div>
+                    <div class="input-group">
+                        <label for="tt-to-execution">Travel to Execution</label>
+                        <input type="number" id="tt-to-execution" value="3" min="0" step="0.5">
+                    </div>
+                    <div class="input-group">
+                        <label for="tt-to-self_departure_handling">Travel to Self Departure Handling</label>
+                        <input type="number" id="tt-to-self_departure_handling" value="2" min="0" step="0.5">
+                    </div>
+                     <div class="input-group">
+                        <label for="tt-to-self_access_control_departure">Travel to Self Access Departure</label>
+                        <input type="number" id="tt-to-self_access_control_departure" value="1.5" min="0" step="0.5">
+                    </div>
+                    <div class="input-group">
+                        <label for="tt-to-access_control_departure">Travel to Access Control Departure</label>
+                        <input type="number" id="tt-to-access_control_departure" value="1" min="0" step="0.5">
+                    </div>
                 </fieldset>
 
                 <fieldset>
-                    <legend>Config & Speed</legend>
-                    <div class="input-group"><label>Operating Hours (0-23)</label><div class="hour-inputs"><input type="number" id="opening-hour" value="7" min="0" max="23"><input type="number" id="closing-hour" value="19" min="0" max="23"></div></div>
-                    <div class="input-group"><label>Simulation Speed</label><select id="speed-multiplier"></select></div>
+                    <legend>Servers & Service Times (mins)</legend>
+                    <div id="server-config-container">
+                        <!-- Server inputs will be generated by JS -->
+                    </div>
                 </fieldset>
             </div>
             <div class="button-container">
                 <button id="start-btn" class="sim-button">Start</button>
-                <button id="stop-btn" class="sim-button">Stop</button>
+                <button id="stop-btn" class="sim-button" disabled>Stop</button>
             </div>
         </div>
+
         <div id="simulation-container">
-            <canvas id="simulationCanvas" width="1000" height="600"></canvas>
-            <div id="results-panel">
-                <h2>Results</h2>
-                <table id="results-table">
-                    <thead><tr><th>Server Point</th><th>Queue</th><th>Max Q</th><th>Avg Wait (m)</th><th>Max Wait (m)</th><th>Avg Svc (m)</th><th>Util (%)</th><th>Processed</th></tr></thead>
-                    <tbody id="results-body"></tbody>
-                </table>
-                <div class="overall-stats"><strong>Overall Avg. Turnaround Time: </strong><span id="avg-turnaround-time">0.00</span> hours</div>
-            </div>
+            <canvas id="simulationCanvas" width="1200" height="600"></canvas>
+        </div>
+        
+        <div id="results-panel">
+            <h2>Results</h2>
+            <table id="results-table">
+                <thead>
+                    <tr>
+                        <th>Server Point</th>
+                        <th>Queue</th>
+                        <th>Max Q</th>
+                        <th>Avg Wait (m)</th>
+                        <th>Max Wait (m)</th>
+                        <th>Avg Svc (m)</th>
+                        <th>Util (24h)%</th>
+                        <th>Util (Open)%</th>
+                        <th>Processed</th>
+                    </tr>
+                </thead>
+                <tbody id="results-body">
+                    <!-- Results rows will be generated by JS -->
+                </tbody>
+            </table>
+            <div class="overall-stats"><strong>Overall Avg. Turnaround Time: </strong><span id="avg-turnaround-time">0.00</span> hours</div>
         </div>
     </div>
     <script src="simulation.js"></script>

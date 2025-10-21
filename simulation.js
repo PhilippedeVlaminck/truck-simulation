@@ -1,8 +1,7 @@
 // ===================================================================================
 // --- Global Variables & Constants ---
 // ===================================================================================
-const canvas = document.getElementById('simulationCanvas');
-const ctx = canvas.getContext('2d');
+let canvas, ctx;
 
 let PARAMS = {};
 
@@ -30,9 +29,20 @@ const PROCESS_FLOW = [
 const serverPoints = {};
 let pathDefinitions = {};
 
-
 let truckIdCounter, simulationTime, trucks, animationFrameId, isRunning;
 let completedTrucksData = [];
+
+// Chart variables
+let queueChart, utilizationChart, throughputChart, waitTimeChart;
+let chartUpdateCounter = 0;
+const CHART_UPDATE_INTERVAL = 150; // Update charts every 150 ticks
+let chartDataHistory = {
+    labels: [],
+    queueData: {},
+    utilizationData: {},
+    throughputData: [],
+    waitTimeData: {}
+};
 
 // ===================================================================================
 // --- Core Simulation Logic (Functions) ---
@@ -46,7 +56,6 @@ function capitalizeWords(str) {
 function getPath(fromKey, toKey) {
     return JSON.parse(JSON.stringify(pathDefinitions[`${fromKey}->${toKey}`] || []));
 }
-
 
 function generateHourlySchedule(totalTrucks, type, openingHour, closingHour) {
     const schedule = new Array(24).fill(0);
@@ -124,6 +133,14 @@ function resetState() {
     simulationTime = 0;
     trucks = [];
     completedTrucksData = [];
+    chartUpdateCounter = 0;
+    chartDataHistory = {
+        labels: [],
+        queueData: {},
+        utilizationData: {},
+        throughputData: [],
+        waitTimeData: {}
+    };
 
     for (const key in serverPoints) {
         const point = serverPoints[key];
@@ -132,25 +149,54 @@ function resetState() {
         point.servers.forEach(s => { s.busy = false; s.truckId = null; });
     }
 
+    // Reset charts
+    try {
+        if (queueChart) {
+            queueChart.data.labels = [];
+            queueChart.data.datasets.forEach(ds => ds.data = []);
+            queueChart.update('none');
+        }
+        if (utilizationChart) {
+            utilizationChart.data.labels = [];
+            utilizationChart.data.datasets[0].data = [];
+            utilizationChart.update('none');
+        }
+        if (throughputChart) {
+            throughputChart.data.labels = [];
+            throughputChart.data.datasets[0].data = [];
+            throughputChart.update('none');
+        }
+        if (waitTimeChart) {
+            waitTimeChart.data.labels = [];
+            waitTimeChart.data.datasets.forEach(ds => ds.data = []);
+            waitTimeChart.update('none');
+        }
+    } catch (e) {
+        console.error('Error resetting charts:', e);
+    }
+
     initializeResultsTable();
+    updateStatsCards();
     updateResultsDisplay(); 
     draw(); 
 }
 
 function fullResetAndSetup() {
-    updateParamsFromUI();
+    console.log('fullResetAndSetup called');
+    try {
+        updateParamsFromUI();
+        console.log('Params updated from UI');
+    } catch (e) {
+        console.error('Error in updateParamsFromUI:', e);
+        throw e;
+    }
     
     const pointDefinitions = {
-        // Arrival Flow
         self_access_control_arrival: { name: 'self_access_control_arrival',  x: 150, y: 150, branch: { success_percent: PARAMS.BRANCHING.self_access_arrival_success_percent, success_path: 'self_arrival_handling', failure_path: 'access_control_arrival' }},
         access_control_arrival:    { name: 'access_control_arrival',     x: 150, y: 450, next: 'self_arrival_handling'   },
         self_arrival_handling:     { name: 'self_arrival_handling',      x: 350, y: 150, branch: { success_percent: PARAMS.BRANCHING.arrival_success_percent, success_path: 'execution', failure_path: 'arrival_handling' }},
         arrival_handling:          { name: 'arrival_handling',           x: 350, y: 450, next: 'execution'               },
-
-        // Center point - moved up and centered horizontally
         execution:                 { name: 'execution',                  x: 600, y: 150, next: 'self_departure_handling' },
-        
-        // Departure Flow - coordinates adjusted for balance
         self_departure_handling:       { name: 'self_departure_handling',    x: 850, y: 150, branch: { success_percent: PARAMS.BRANCHING.departure_success_percent, success_path: 'self_access_control_departure', failure_path: 'departure_handling' }},
         departure_handling:            { name: 'departure_handling',         x: 850, y: 450, next: 'self_access_control_departure'},
         self_access_control_departure: { name: 'self_access_control_departure', x: 1050, y: 150, branch: { success_percent: PARAMS.BRANCHING.self_access_departure_success_percent, success_path: 'access_control_departure', failure_path: 'access_control_departure'}},
@@ -163,10 +209,10 @@ function fullResetAndSetup() {
         'self_access_control_arrival->self_arrival_handling': [p.self_arrival_handling],
         'self_access_control_arrival->access_control_arrival': [p.access_control_arrival],
         'access_control_arrival->self_arrival_handling':  [{x: p.self_arrival_handling.x, y: p.access_control_arrival.y}, p.self_arrival_handling],
-        'self_arrival_handling->execution':     [p.execution], // Now a straight line
+        'self_arrival_handling->execution':     [p.execution],
         'self_arrival_handling->arrival_handling':  [p.arrival_handling],
-        'arrival_handling->execution':        [{x: p.execution.x, y: p.arrival_handling.y}, p.execution], // Now a corner
-        'execution->self_departure_handling':   [p.self_departure_handling], // Now a straight line
+        'arrival_handling->execution':        [{x: p.execution.x, y: p.arrival_handling.y}, p.execution],
+        'execution->self_departure_handling':   [p.self_departure_handling],
         'self_departure_handling->self_access_control_departure': [p.self_access_control_departure],
         'self_departure_handling->departure_handling': [p.departure_handling],
         'departure_handling->self_access_control_departure': [{x: p.self_access_control_departure.x, y:p.departure_handling.y }, p.self_access_control_departure],
@@ -174,6 +220,10 @@ function fullResetAndSetup() {
         'access_control_departure->exit':       [{x: canvas.width + 40, y: p.access_control_departure.y}],
     };
 
+    if (!canvas) {
+        console.error('Canvas not initialized in fullResetAndSetup!');
+        throw new Error('Canvas not initialized');
+    }
 
     for (const key in pointDefinitions) {
         if (PROCESS_FLOW.includes(key)) {
@@ -184,6 +234,7 @@ function fullResetAndSetup() {
     }
 
     resetState();
+    console.log('fullResetAndSetup completed successfully');
 }
 
 class Truck {
@@ -327,6 +378,82 @@ function update() {
     trucks = trucks.filter(truck => truck.status !== 'finished');
 }
 
+function getBottlenecks() {
+    const bottlenecks = [];
+    PROCESS_FLOW.forEach(pName => {
+        const point = serverPoints[pName];
+        if (!point) return;
+        
+        const avgWaitTicks = point.stats.trucksProcessed > 0 ? (point.stats.totalWaitTime / point.stats.trucksProcessed) : 0;
+        const avgWaitMinutes = (avgWaitTicks / TICKS_PER_SECOND) / 60;
+        
+        // Consider it a bottleneck if average wait > 10 minutes or current queue > 5
+        if (avgWaitMinutes > 10 || point.queue.length > 5) {
+            bottlenecks.push({
+                name: pName,
+                avgWait: avgWaitMinutes,
+                currentQueue: point.queue.length,
+                maxQueue: point.stats.maxQueueLength
+            });
+        }
+    });
+    return bottlenecks;
+}
+
+function updateStatsCards() {
+    const statsContainer = document.getElementById('stats-cards');
+    if (!statsContainer) return;
+    
+    const bottlenecks = getBottlenecks();
+    const totalInSystem = trucks.length;
+    const totalProcessed = completedTrucksData.length;
+    
+    // Calculate average utilization (based on opening hours only)
+    let totalUtil = 0;
+    let countServers = 0;
+    const openHours = PARAMS.CLOSING_HOUR - PARAMS.OPENING_HOUR;
+    const totalDays = Math.floor(simulationTime / (SECONDS_PER_DAY * TICKS_PER_SECOND)) + 1;
+    const totalOpenTicks = openHours * SECONDS_PER_HOUR * TICKS_PER_SECOND * totalDays;
+    
+    PROCESS_FLOW.forEach(pName => {
+        const point = serverPoints[pName];
+        if (!point) return;
+        if (totalOpenTicks > 0) {
+            const util = (point.stats.totalBusyTime / (point.servers.length * totalOpenTicks)) * 100;
+            totalUtil += util;
+            countServers++;
+        }
+    });
+    const avgUtil = countServers > 0 ? totalUtil / countServers : 0;
+    
+    // Find worst bottleneck
+    const worstBottleneck = bottlenecks.length > 0 ? 
+        bottlenecks.reduce((max, b) => b.currentQueue > max.currentQueue ? b : max, bottlenecks[0]) : null;
+    
+    statsContainer.innerHTML = `
+        <div class="stat-card">
+            <h3>Trucks in System</h3>
+            <div class="value">${totalInSystem}</div>
+            <div class="label">Currently processing</div>
+        </div>
+        <div class="stat-card">
+            <h3>Completed</h3>
+            <div class="value">${totalProcessed}</div>
+            <div class="label">Total trucks processed</div>
+        </div>
+        <div class="stat-card">
+            <h3>Avg Utilization</h3>
+            <div class="value">${avgUtil.toFixed(1)}%</div>
+            <div class="label">During opening hours</div>
+        </div>
+        <div class="stat-card ${worstBottleneck ? 'bottleneck' : 'smooth'}">
+            <h3>${worstBottleneck ? 'Bottleneck Alert' : 'System Status'}</h3>
+            <div class="value">${worstBottleneck ? worstBottleneck.currentQueue : '✓'}</div>
+            <div class="label">${worstBottleneck ? capitalizeWords(worstBottleneck.name) : 'Running Smoothly'}</div>
+        </div>
+    `;
+}
+
 function drawTruck(x, y, rotation, status) {
     ctx.save();
     ctx.translate(x, y);
@@ -335,12 +462,19 @@ function drawTruck(x, y, rotation, status) {
     const truckWidth = 24;
     const truckHeight = 12;
     
+    // Enhanced colors with glow effects
     if (status === 'in_service') {
          ctx.fillStyle = '#2ECC71'; 
          ctx.shadowColor = '#58D68D';
          ctx.shadowBlur = 15;
+    } else if (status === 'queuing') {
+         ctx.fillStyle = '#F1C40F';
+         ctx.shadowColor = '#F4D03F';
+         ctx.shadowBlur = 10;
     } else {
          ctx.fillStyle = '#5DADE2'; 
+         ctx.shadowColor = '#85C1E9';
+         ctx.shadowBlur = 8;
     }
     
     ctx.fillRect(-truckWidth / 2, -truckHeight / 2, truckWidth, truckHeight);
@@ -360,60 +494,231 @@ function drawTruck(x, y, rotation, status) {
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1C2833'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Dark gradient background to match container
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, '#1a1a2e');
+    gradient.addColorStop(1, '#16213e');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
     const p = serverPoints;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
-    ctx.beginPath();
+    const bottlenecks = getBottlenecks();
+    const bottleneckNames = bottlenecks.map(b => b.name);
+    
+    // Draw paths with dynamic styling
+    ctx.lineWidth = 2; 
+    ctx.setLineDash([5, 5]);
+    
+    // Helper to draw path with color
+    const drawColoredPath = (from, to, isBottleneck) => {
+        ctx.strokeStyle = isBottleneck ? 'rgba(231, 76, 60, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = isBottleneck ? 3 : 2;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+    };
     
     // Arrival Flow
-    ctx.moveTo(p.self_access_control_arrival.x, p.self_access_control_arrival.y); ctx.lineTo(p.self_arrival_handling.x, p.self_arrival_handling.y);
-    ctx.moveTo(p.self_access_control_arrival.x, p.self_access_control_arrival.y); ctx.lineTo(p.access_control_arrival.x, p.access_control_arrival.y);
-    ctx.moveTo(p.access_control_arrival.x, p.access_control_arrival.y); ctx.lineTo(p.self_arrival_handling.x, p.self_arrival_handling.y);
-    ctx.moveTo(p.self_arrival_handling.x, p.self_arrival_handling.y); ctx.lineTo(p.execution.x, p.execution.y);
-    ctx.moveTo(p.self_arrival_handling.x, p.self_arrival_handling.y); ctx.lineTo(p.arrival_handling.x, p.arrival_handling.y);
-    ctx.moveTo(p.arrival_handling.x, p.arrival_handling.y); ctx.lineTo(p.execution.x, p.execution.y); 
-
-    // Connection to Departure
-    ctx.moveTo(p.execution.x, p.execution.y); ctx.lineTo(p.self_departure_handling.x, p.self_departure_handling.y);
+    drawColoredPath(p.self_access_control_arrival, p.self_arrival_handling, bottleneckNames.includes('self_arrival_handling'));
+    drawColoredPath(p.self_access_control_arrival, p.access_control_arrival, bottleneckNames.includes('access_control_arrival'));
+    drawColoredPath(p.access_control_arrival, p.self_arrival_handling, bottleneckNames.includes('self_arrival_handling'));
+    drawColoredPath(p.self_arrival_handling, p.execution, bottleneckNames.includes('execution'));
+    drawColoredPath(p.self_arrival_handling, p.arrival_handling, bottleneckNames.includes('arrival_handling'));
+    drawColoredPath(p.arrival_handling, p.execution, bottleneckNames.includes('execution'));
     
     // Departure Flow
-    ctx.moveTo(p.self_departure_handling.x, p.self_departure_handling.y); ctx.lineTo(p.self_access_control_departure.x, p.self_access_control_departure.y);
-    ctx.moveTo(p.self_departure_handling.x, p.self_departure_handling.y); ctx.lineTo(p.departure_handling.x, p.departure_handling.y);
-    ctx.moveTo(p.departure_handling.x, p.departure_handling.y); ctx.lineTo(p.self_access_control_departure.x, p.self_access_control_departure.y);
-    ctx.moveTo(p.self_access_control_departure.x, p.self_access_control_departure.y); ctx.lineTo(p.access_control_departure.x, p.access_control_departure.y);
-
-    ctx.stroke();
+    drawColoredPath(p.execution, p.self_departure_handling, bottleneckNames.includes('self_departure_handling'));
+    drawColoredPath(p.self_departure_handling, p.self_access_control_departure, bottleneckNames.includes('self_access_control_departure'));
+    drawColoredPath(p.self_departure_handling, p.departure_handling, bottleneckNames.includes('departure_handling'));
+    drawColoredPath(p.departure_handling, p.self_access_control_departure, bottleneckNames.includes('self_access_control_departure'));
+    drawColoredPath(p.self_access_control_departure, p.access_control_departure, bottleneckNames.includes('access_control_departure'));
+    
     ctx.setLineDash([]); 
     
+    // Draw server points with enhanced visuals
     PROCESS_FLOW.forEach(pointName => {
-        const point = serverPoints[pointName]; if (!point) return;
-        ctx.beginPath(); ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI); ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'; ctx.fill();
+        const point = serverPoints[pointName]; 
+        if (!point) return;
+        
+        const isBottleneck = bottleneckNames.includes(pointName);
+        
+        // Draw node
+        ctx.beginPath(); 
+        ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI); 
+        ctx.fillStyle = isBottleneck ? 'rgba(231, 76, 60, 0.8)' : 'rgba(255, 255, 255, 0.8)'; 
+        ctx.fill();
+        
+        // Draw queue indicator
         if (point.queue.length > 0) {
-            const baseRadius = 10; const radius = baseRadius + (point.queue.length * 2.5);
-            ctx.beginPath(); ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
-            const alpha = 0.3 + (Math.sin(simulationTime / 15) * 0.1);
-            ctx.fillStyle = `rgba(241, 196, 15, ${alpha})`; ctx.fill();
-            ctx.fillStyle = 'white'; ctx.font = `bold ${10 + point.queue.length}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const baseRadius = 10; 
+            const radius = baseRadius + (point.queue.length * 2.5);
+            ctx.beginPath(); 
+            ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+            
+            const alpha = isBottleneck ? 0.4 + (Math.sin(simulationTime / 10) * 0.2) : 0.3 + (Math.sin(simulationTime / 15) * 0.1);
+            const color = isBottleneck ? '231, 76, 60' : '241, 196, 15';
+            ctx.fillStyle = `rgba(${color}, ${alpha})`; 
+            ctx.fill();
+            
+            // Queue number
+            ctx.fillStyle = isBottleneck ? '#E74C3C' : 'white'; 
+            ctx.font = `bold ${10 + point.queue.length}px Arial`; 
+            ctx.textAlign = 'center'; 
+            ctx.textBaseline = 'middle';
             ctx.fillText(point.queue.length, point.x, point.y);
         }
+        
+        // Draw label
         const displayName = capitalizeWords(point.name);
-        ctx.fillStyle = '#FFFFFF'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.fillText(displayName, point.x, point.y + 30);
+        ctx.fillStyle = isBottleneck ? '#E74C3C' : '#FFFFFF'; 
+        ctx.font = isBottleneck ? 'bold 13px Arial' : '13px Arial'; 
+        ctx.textAlign = 'center'; 
+        ctx.fillText(displayName, point.x, point.y + 30);
     });
     
+    // Draw trucks
     trucks.forEach(truck => {
-        if (truck.status === 'queuing') return; 
-        drawTruck(truck.x, truck.y, truck.rotation, truck.status);
+        if (truck.status !== 'queuing') {
+            drawTruck(truck.x, truck.y, truck.rotation, truck.status);
+        }
     });
 
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = 'bold 16px Arial'; ctx.fillStyle = 'white';
-    const totalSeconds = Math.floor(simulationTime / TICKS_PER_SECOND); const day = Math.floor(totalSeconds / SECONDS_PER_DAY); const hour = Math.floor((totalSeconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR); const minute = Math.floor((totalSeconds % SECONDS_PER_HOUR) / 60); const timeString = `Day ${day}, ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    // Draw time and status
+    ctx.textAlign = 'left'; 
+    ctx.textBaseline = 'top'; 
+    ctx.font = 'bold 16px Arial'; 
+    ctx.fillStyle = 'white';
+    const totalSeconds = Math.floor(simulationTime / TICKS_PER_SECOND); 
+    const day = Math.floor(totalSeconds / SECONDS_PER_DAY); 
+    const hour = Math.floor((totalSeconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR); 
+    const minute = Math.floor((totalSeconds % SECONDS_PER_HOUR) / 60); 
+    const timeString = `Day ${day}, ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
     ctx.fillText(timeString, 10, 15);
+    
     const isOpen = (hour >= PARAMS.OPENING_HOUR && hour < PARAMS.CLOSING_HOUR);
-    ctx.font = 'bold 14px Arial'; ctx.fillStyle = isOpen ? '#2ECC71' : '#E74C3C';
+    ctx.font = 'bold 14px Arial'; 
+    ctx.fillStyle = isOpen ? '#2ECC71' : '#E74C3C';
     ctx.fillText(isOpen ? 'ACCEPTING ARRIVALS' : 'CLOSED FOR NEW ARRIVALS', 10, 35);
 }
 
+function updateCharts() {
+    if (!queueChart || !utilizationChart || !throughputChart || !waitTimeChart) {
+        // Charts not initialized yet, skip update
+        return;
+    }
+    
+    chartUpdateCounter++;
+    if (chartUpdateCounter < CHART_UPDATE_INTERVAL) return;
+    chartUpdateCounter = 0;
+    
+    // Generate time label
+    const totalSeconds = Math.floor(simulationTime / TICKS_PER_SECOND);
+    const hour = Math.floor((totalSeconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+    const minute = Math.floor((totalSeconds % SECONDS_PER_HOUR) / 60);
+    const timeLabel = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    
+    chartDataHistory.labels.push(timeLabel);
+    
+    // Limit data points to last 30
+    if (chartDataHistory.labels.length > 30) {
+        chartDataHistory.labels.shift();
+    }
+    
+    // Update queue chart data
+    PROCESS_FLOW.forEach((pName, idx) => {
+        const point = serverPoints[pName];
+        if (!point) return;
+        
+        if (!chartDataHistory.queueData[pName]) {
+            chartDataHistory.queueData[pName] = [];
+        }
+        chartDataHistory.queueData[pName].push(point.queue.length);
+        
+        if (chartDataHistory.queueData[pName].length > 30) {
+            chartDataHistory.queueData[pName].shift();
+        }
+        
+        if (queueChart.data.datasets[idx]) {
+            queueChart.data.datasets[idx].data = chartDataHistory.queueData[pName];
+        }
+    });
+    
+    // Update utilization chart (based on opening hours only)
+    const openHours = PARAMS.CLOSING_HOUR - PARAMS.OPENING_HOUR;
+    const totalDays = Math.floor(simulationTime / (SECONDS_PER_DAY * TICKS_PER_SECOND)) + 1;
+    const totalOpenTicks = openHours * SECONDS_PER_HOUR * TICKS_PER_SECOND * totalDays;
+    
+    PROCESS_FLOW.forEach((pName, idx) => {
+        const point = serverPoints[pName];
+        if (!point) return;
+        
+        const util = totalOpenTicks > 0 ? (point.stats.totalBusyTime / (point.servers.length * totalOpenTicks)) * 100 : 0;
+        
+        if (!chartDataHistory.utilizationData[pName]) {
+            chartDataHistory.utilizationData[pName] = [];
+        }
+        chartDataHistory.utilizationData[pName].push(util);
+        
+        if (chartDataHistory.utilizationData[pName].length > 30) {
+            chartDataHistory.utilizationData[pName].shift();
+        }
+    });
+    
+    // Update utilization chart with latest data
+    utilizationChart.data.labels = PROCESS_FLOW.map(p => capitalizeWords(p));
+    utilizationChart.data.datasets[0].data = PROCESS_FLOW.map(pName => {
+        const point = serverPoints[pName];
+        if (!point) return 0;
+        return totalOpenTicks > 0 ? (point.stats.totalBusyTime / (point.servers.length * totalOpenTicks)) * 100 : 0;
+    });
+    
+    // Update throughput chart
+    chartDataHistory.throughputData.push(completedTrucksData.length);
+    if (chartDataHistory.throughputData.length > 30) {
+        chartDataHistory.throughputData.shift();
+    }
+    throughputChart.data.datasets[0].data = chartDataHistory.throughputData;
+    
+    // Update wait time chart
+    PROCESS_FLOW.forEach((pName, idx) => {
+        const point = serverPoints[pName];
+        if (!point) return;
+        
+        const avgWaitTicks = point.stats.trucksProcessed > 0 ? (point.stats.totalWaitTime / point.stats.trucksProcessed) : 0;
+        const avgWaitMinutes = (avgWaitTicks / TICKS_PER_SECOND) / 60;
+        
+        if (!chartDataHistory.waitTimeData[pName]) {
+            chartDataHistory.waitTimeData[pName] = [];
+        }
+        chartDataHistory.waitTimeData[pName].push(avgWaitMinutes);
+        
+        if (chartDataHistory.waitTimeData[pName].length > 30) {
+            chartDataHistory.waitTimeData[pName].shift();
+        }
+        
+        if (waitTimeChart.data.datasets[idx]) {
+            waitTimeChart.data.datasets[idx].data = chartDataHistory.waitTimeData[pName];
+        }
+    });
+    
+    // Update all charts
+    queueChart.data.labels = chartDataHistory.labels;
+    queueChart.update('none');
+    
+    utilizationChart.update('none');
+    
+    throughputChart.data.labels = chartDataHistory.labels;
+    throughputChart.update('none');
+    
+    waitTimeChart.data.labels = chartDataHistory.labels;
+    waitTimeChart.update('none');
+}
+
 function updateResultsDisplay() {
+    const bottlenecks = getBottlenecks();
+    const bottleneckNames = bottlenecks.map(b => b.name);
+    
     PROCESS_FLOW.forEach(pName => {
         const point = serverPoints[pName]; if (!point) return;
         const avgWaitTicks = point.stats.trucksProcessed > 0 ? (point.stats.totalWaitTime / point.stats.trucksProcessed) : 0;
@@ -421,11 +726,11 @@ function updateResultsDisplay() {
         const avgServiceTicks = point.stats.trucksProcessed > 0 ? (point.stats.totalServiceTime / point.stats.trucksProcessed) : 0;
         const avgServiceMinutes = (avgServiceTicks / TICKS_PER_SECOND) / 60;
         
-        const totalSimTicks = simulationTime;
-        const util24h = totalSimTicks > 0 ? (point.stats.totalBusyTime / (point.servers.length * totalSimTicks)) * 100 : 0;
-        
+        // Calculate utilization based on opening hours only
         const openHours = PARAMS.CLOSING_HOUR - PARAMS.OPENING_HOUR;
-        const totalOpenTicks = (openHours * SECONDS_PER_HOUR * TICKS_PER_SECOND) * (totalSimTicks / (SECONDS_PER_DAY * TICKS_PER_SECOND));
+        const totalDays = Math.floor(simulationTime / (SECONDS_PER_DAY * TICKS_PER_SECOND)) + 1;
+        const totalOpenTicks = openHours * SECONDS_PER_HOUR * TICKS_PER_SECOND * totalDays;
+        
         const utilOpen = totalOpenTicks > 0 ? (point.stats.totalBusyTime / (point.servers.length * totalOpenTicks)) * 100 : 0;
 
         const maxWaitMinutes = (point.stats.maxWaitTime / TICKS_PER_SECOND) / 60;
@@ -435,16 +740,31 @@ function updateResultsDisplay() {
         document.getElementById(`wait-avg-${pName}`).textContent = avgWaitMinutes.toFixed(2);
         document.getElementById(`wait-max-${pName}`).textContent = maxWaitMinutes.toFixed(2);
         document.getElementById(`svc-avg-${pName}`).textContent = avgServiceMinutes.toFixed(2);
-        document.getElementById(`util-24h-${pName}`).textContent = util24h.toFixed(1);
         document.getElementById(`util-open-${pName}`).textContent = utilOpen.toFixed(1);
         document.getElementById(`processed-${pName}`).textContent = point.stats.trucksProcessed;
+        
+        // Highlight bottleneck rows
+        const row = document.getElementById(`q-curr-${pName}`).parentElement;
+        if (bottleneckNames.includes(pName)) {
+            row.classList.add('bottleneck-row');
+            row.classList.remove('smooth-row');
+        } else if (avgWaitMinutes < 2 && point.queue.length === 0) {
+            row.classList.add('smooth-row');
+            row.classList.remove('bottleneck-row');
+        } else {
+            row.classList.remove('bottleneck-row');
+            row.classList.remove('smooth-row');
+        }
     });
+    
     if (completedTrucksData.length > 0) {
         const totalTurnaroundTicks = completedTrucksData.reduce((sum, data) => sum + data.turnaroundTime, 0);
         const avgTurnaroundTicks = totalTurnaroundTicks / completedTrucksData.length;
         const avgTurnaroundHours = (avgTurnaroundTicks / TICKS_PER_SECOND) / 3600;
         document.getElementById('avg-turnaround-time').textContent = avgTurnaroundHours.toFixed(2);
-    } else { document.getElementById('avg-turnaround-time').textContent = "0.00"; }
+    } else { 
+        document.getElementById('avg-turnaround-time').textContent = "0.00"; 
+    }
 }
 
 function initializeResultsTable() {
@@ -459,10 +779,154 @@ function initializeResultsTable() {
             <td id="wait-avg-${pName}">0.00</td>
             <td id="wait-max-${pName}">0.00</td>
             <td id="svc-avg-${pName}">0.00</td>
-            <td id="util-24h-${pName}">0.0</td>
             <td id="util-open-${pName}">0.0</td>
             <td id="processed-${pName}">0</td>`;
         tableBody.appendChild(row);
+    });
+}
+
+function initializeCharts() {
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js is not available. Cannot initialize charts.');
+        return;
+    }
+    
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+            duration: 0
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    };
+    
+    // Queue Chart
+    const queueCtx = document.getElementById('queueChart').getContext('2d');
+    const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0'];
+    queueChart = new Chart(queueCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: PROCESS_FLOW.map((pName, idx) => ({
+                label: capitalizeWords(pName),
+                data: [],
+                borderColor: colors[idx % colors.length],
+                backgroundColor: colors[idx % colors.length] + '33',
+                borderWidth: 2,
+                tension: 0.4,
+                pointRadius: 0
+            }))
+        },
+        options: {
+            ...commonOptions,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: { boxWidth: 12, font: { size: 10 } }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Queue Length' }
+                }
+            }
+        }
+    });
+    
+    // Utilization Chart (Bar)
+    const utilCtx = document.getElementById('utilizationChart').getContext('2d');
+    utilizationChart = new Chart(utilCtx, {
+        type: 'bar',
+        data: {
+            labels: PROCESS_FLOW.map(p => capitalizeWords(p)),
+            datasets: [{
+                label: 'Utilization %',
+                data: [],
+                backgroundColor: PROCESS_FLOW.map((_, idx) => colors[idx % colors.length]),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            ...commonOptions,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: 'Utilization %' }
+                },
+                x: {
+                    ticks: { font: { size: 9 } }
+                }
+            }
+        }
+    });
+    
+    // Throughput Chart
+    const throughputCtx = document.getElementById('throughputChart').getContext('2d');
+    throughputChart = new Chart(throughputCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Total Processed',
+                data: [],
+                borderColor: '#2ECC71',
+                backgroundColor: '#2ECC7133',
+                borderWidth: 3,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 0
+            }]
+        },
+        options: {
+            ...commonOptions,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Trucks Completed' }
+                }
+            }
+        }
+    });
+    
+    // Wait Time Chart
+    const waitTimeCtx = document.getElementById('waitTimeChart').getContext('2d');
+    waitTimeChart = new Chart(waitTimeCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: PROCESS_FLOW.map((pName, idx) => ({
+                label: capitalizeWords(pName),
+                data: [],
+                borderColor: colors[idx % colors.length],
+                backgroundColor: colors[idx % colors.length] + '33',
+                borderWidth: 2,
+                tension: 0.4,
+                pointRadius: 0
+            }))
+        },
+        options: {
+            ...commonOptions,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: { boxWidth: 12, font: { size: 10 } }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Wait Time (minutes)' }
+                }
+            }
+        }
     });
 }
 
@@ -486,19 +950,35 @@ function gameLoop() {
         update();
     }
     draw();
-    if (simulationTime > 0 && simulationTime % 30 === 0) updateResultsDisplay();
+    if (simulationTime > 0 && simulationTime % 30 === 0) {
+        updateResultsDisplay();
+        updateStatsCards();
+    }
+    updateCharts();
     animationFrameId = requestAnimationFrame(gameLoop);
 }
 
 function startSimulation() {
+    console.log('startSimulation called, isRunning:', isRunning);
     if (isRunning) return;
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
 
+    if (!startBtn || !stopBtn) {
+        console.error('Start or Stop button not found!');
+        return;
+    }
+
     if (startBtn.textContent === 'Start') {
-        fullResetAndSetup();
+        console.log('Calling fullResetAndSetup');
+        try {
+            fullResetAndSetup();
+        } catch (e) {
+            console.error('Error in fullResetAndSetup:', e);
+            return;
+        }
     }
     
     isRunning = true;
@@ -507,6 +987,7 @@ function startSimulation() {
     stopBtn.textContent = 'Stop';
     stopBtn.classList.remove('reset-mode');
     startBtn.textContent = 'Resume'; 
+    console.log('Starting game loop');
     gameLoop();
 }
 
@@ -541,7 +1022,7 @@ function generateControlInputs() {
         div.className = 'input-group';
         
         const displayName = capitalizeWords(pName);
-        const numServers = defaultServers[pName] || 1; // Fallback to 1
+        const numServers = defaultServers[pName] || 1;
         const sTimes = defaultServiceTimes[pName] || {min: 1, max: 2};
 
         div.innerHTML = `
@@ -566,19 +1047,16 @@ function generateControlInputs() {
 
 function setBaselineParameters() {
     try {
-        // General
         document.getElementById('total-trucks-day').value = 150;
         document.getElementById('distribution-type').value = 'wave';
         document.getElementById('opening-hour').value = 6;
         document.getElementById('closing-hour').value = 22;
 
-        // Branching
         document.getElementById('branch-self-access-arrival-success').value = 75;
         document.getElementById('branch-arrival-success').value = 75;
         document.getElementById('branch-departure-success').value = 75;
         document.getElementById('branch-self-access-departure-success').value = 75;
 
-        // Travel Times
         document.getElementById('tt-to-execution').value = 7;
         document.getElementById('tt-to-self_departure_handling').value = 7;
         document.getElementById('tt-to-access_control_arrival').value = 2;
@@ -601,8 +1079,6 @@ function setBaselineParameters() {
             document.getElementById(`s-${serverId}`).value = serverCounts[serverId];
         }
 
-
-        // Manually update the schedule display to reflect new defaults
         const totalTrucks = parseInt(document.getElementById('total-trucks-day').value);
         const distType = document.getElementById('distribution-type').value;
         const openingHour = parseInt(document.getElementById('opening-hour').value);
@@ -611,15 +1087,13 @@ function setBaselineParameters() {
         document.getElementById('schedule-display').textContent = PARAMS.HOURLY_ARRIVALS.join(', ');
 
     } catch (e) {
-        console.error("Could not set baseline parameters. Are all control panel elements in the HTML?", e);
+        console.error("Could not set baseline parameters.", e);
     }
 }
 
-// --- NEW: Export function and its helper ---
 function exportResults() {
     let csvContent = "data:text/csv;charset=utf-8,";
 
-    // --- Settings Section ---
     csvContent += "Simulation Settings\n\n";
     csvContent += "Parameter,Value\n";
     csvContent += `Total Trucks per Day,${document.getElementById('total-trucks-day').value}\n`;
@@ -646,31 +1120,26 @@ function exportResults() {
     });
     csvContent += "\n\n";
 
-    // --- Results Section ---
     csvContent += "Simulation Results\n\n";
     const avgTurnaround = document.getElementById('avg-turnaround-time').textContent;
     csvContent += `Overall Avg. Turnaround Time (hours),${avgTurnaround}\n\n`;
 
-    // Get table headers
     const headers = Array.from(document.querySelectorAll("#results-table th")).map(th => th.textContent);
     csvContent += headers.join(",") + "\n";
     
-    // Get table rows
     PROCESS_FLOW.forEach(pName => {
         let row = [];
-        row.push(`"${capitalizeWords(pName)}"`); // Add quotes in case of commas in name
+        row.push(`"${capitalizeWords(pName)}"`);
         row.push(document.getElementById(`q-curr-${pName}`).textContent);
         row.push(document.getElementById(`q-max-${pName}`).textContent);
         row.push(document.getElementById(`wait-avg-${pName}`).textContent);
         row.push(document.getElementById(`wait-max-${pName}`).textContent);
         row.push(document.getElementById(`svc-avg-${pName}`).textContent);
-        row.push(document.getElementById(`util-24h-${pName}`).textContent);
         row.push(document.getElementById(`util-open-${pName}`).textContent);
         row.push(document.getElementById(`processed-${pName}`).textContent);
         csvContent += row.join(",") + "\n";
     });
 
-    // --- Trigger Download ---
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -681,11 +1150,26 @@ function exportResults() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM Content Loaded');
+    
+    // Initialize canvas
+    canvas = document.getElementById('simulationCanvas');
+    if (!canvas) {
+        console.error('Canvas element not found!');
+        return;
+    }
+    ctx = canvas.getContext('2d');
+    console.log('Canvas initialized');
+    
     generateControlInputs();
+    console.log('Control inputs generated');
 
     const setupOptionSelectors = () => {
         const speedControl = document.getElementById('speed-multiplier');
-        if(!speedControl) return;
+        if(!speedControl) {
+            console.error('Speed control not found!');
+            return;
+        }
 
         speedControl.innerHTML = ''; 
 
@@ -699,17 +1183,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         speedControl.value = "5000"; 
+        console.log('Speed control set to:', speedControl.value);
     };
 
     setupOptionSelectors();
     setBaselineParameters(); 
+    console.log('Baseline parameters set');
     
-    // --- Add Export Button ---
+    // Check if Chart is available
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js not loaded! Charts will not work.');
+    } else {
+        initializeCharts();
+        console.log('Charts initialized');
+    }
+    
     const resultsPanel = document.getElementById('results-panel');
     if (resultsPanel) {
         const exportBtn = document.createElement('button');
         exportBtn.textContent = 'Export Results (CSV)';
-        exportBtn.className = 'sim-button'; // Use existing button styling
+        exportBtn.className = 'sim-button';
         exportBtn.style.backgroundColor = 'var(--primary-color)';
         exportBtn.style.marginTop = '20px';
         exportBtn.style.display = 'block';
@@ -754,3 +1247,22 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("A control button was not found.");
     }
 });
+
+// Tab switching function
+function switchTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('active');
+    });
+    
+    // Show selected tab content
+    document.getElementById(tabName + '-tab').classList.add('active');
+    
+    // Highlight selected tab button
+    event.target.classList.add('active');
+}

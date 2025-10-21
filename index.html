@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interactive Truck Terminal Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         :root {
             --primary-color: #0d6efd;
@@ -14,199 +15,550 @@
             --border-color: #dee2e6;
             --success-color: #198754;
             --danger-color: #dc3545;
+            --warning-color: #ffc107;
             --reset-color: #ffc107;
             --shadow-color: rgba(0, 0, 0, 0.1);
+            --bottleneck-color: #e74c3c;
+            --smooth-color: #2ecc71;
         }
         body { 
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
-            background-color: var(--background-color);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: var(--text-color);
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            min-height: 100vh;
         }
         .main-container {
             display: flex;
             flex-direction: column;
-            gap: 20px;
-            max-width: 1450px;
-            width: 100%;
+            width: 100vw;
+            height: 100vh;
+            max-width: 1920px;
+            margin: 0 auto;
         }
-        #control-panel, #results-panel {
+        
+        /* Tabs */
+        .tab-container {
             background: var(--panel-background);
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px var(--shadow-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+        }
+        .tab-navigation {
+            display: flex;
+            background: linear-gradient(to right, #1e3c72, #2a5298);
+            padding: 0;
+            margin: 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
+        }
+        .tab-button {
+            flex: 1;
+            padding: 20px 30px;
+            background: transparent;
+            border: none;
+            font-size: 1.2em;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border-bottom: 4px solid transparent;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+        }
+        .tab-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tab-button:hover::before {
+            opacity: 1;
+        }
+        .tab-button:hover {
+            color: rgba(255, 255, 255, 0.95);
+            transform: translateY(-2px);
+        }
+        .tab-button.active {
+            color: #ffffff;
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.05));
+            border-bottom-color: #4facfe;
+            box-shadow: inset 0 -4px 0 0 #4facfe;
+        }
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        #control-panel, #results-panel, #charts-panel {
+            background: transparent;
+            padding: 20px 30px;
+            border-radius: 0;
+            box-shadow: none;
             width: 100%;
             box-sizing: border-box;
         }
-        #control-panel h2, #results-panel h2 { text-align: center; margin-top: 0; margin-bottom: 20px; color: var(--primary-color); font-weight: 600; }
-        .config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
-        fieldset { border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 10px; }
-        legend { font-weight: 600; color: var(--primary-color); padding: 0 10px; }
-        .input-group { margin-bottom: 12px; }
-        .input-group label { font-size: 0.9em; margin-bottom: 6px; color: var(--label-color); display: block; font-weight: 500; }
-        .input-group select, .input-group input { padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box; }
+        #control-panel h2, #results-panel h2, #charts-panel h2 { 
+            text-align: center; 
+            margin-top: 0; 
+            margin-bottom: 15px; 
+            color: var(--primary-color); 
+            font-weight: 700; 
+            font-size: 1.8em;
+        }
+        .config-grid { 
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            gap: 15px; 
+            margin-bottom: 15px;
+        }
+        fieldset { 
+            border: 2px solid var(--primary-color); 
+            border-radius: 10px; 
+            padding: 15px; 
+            margin-bottom: 0; 
+            background: white; 
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        legend { 
+            font-weight: 700; 
+            color: white; 
+            padding: 5px 15px; 
+            background: var(--primary-color);
+            border-radius: 20px;
+            font-size: 0.95em;
+        }
+        .input-group { margin-bottom: 10px; }
+        .input-group label { font-size: 0.85em; margin-bottom: 4px; color: var(--label-color); display: block; font-weight: 600; }
+        .input-group select, .input-group input { padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box; font-size: 0.9em; }
         .time-inputs, .hour-inputs, .server-inputs, .service-time-inputs { display: flex; gap: 8px; align-items: center; }
         .service-time-inputs input { width: 50%; }
         .server-inputs label { flex-basis: 220px; font-weight: normal; font-size: 0.85em }
-        #schedule-display { font-family: monospace; font-size: 0.9em; background-color: #f8f9fa; padding: 10px; border-radius: 6px; word-wrap: break-word; border: 1px solid var(--border-color); min-height: 40px; margin-top: 10px; }
+        #schedule-display { font-family: monospace; font-size: 0.8em; background-color: #f8f9fa; padding: 8px; border-radius: 6px; word-wrap: break-word; border: 1px solid var(--border-color); min-height: 30px; margin-top: 8px; line-height: 1.3; }
         
-        .button-container { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
-        .sim-button { padding: 12px; color: white; font-size: 1.1em; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: background-color 0.2s, transform 0.1s; }
-        .sim-button:active { transform: translateY(1px); }
-        #start-btn { background-color: var(--success-color); }
-        #start-btn:hover { background-color: #157347; }
-        #stop-btn { background-color: var(--danger-color); }
-        #stop-btn:hover { background-color: #bb2d3b; }
-        #stop-btn.reset-mode { background-color: var(--reset-color); color: #000;}
-        #stop-btn.reset-mode:hover { background-color: #ffca2c;}
-        .sim-button:disabled { background-color: #6c757d; cursor: not-allowed; transform: none; }
+        .button-container { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 15px; 
+            margin-top: 15px; 
+        }
+        .sim-button { 
+            padding: 15px; 
+            color: white; 
+            font-size: 1.2em; 
+            font-weight: 700; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: all 0.3s; 
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .sim-button:active { transform: translateY(2px); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); }
+        #start-btn { background: linear-gradient(135deg, var(--success-color), #28a745); }
+        #start-btn:hover { background: linear-gradient(135deg, #28a745, var(--success-color)); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3); }
+        #stop-btn { background: linear-gradient(135deg, var(--danger-color), #c82333); }
+        #stop-btn:hover { background: linear-gradient(135deg, #c82333, var(--danger-color)); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3); }
+        #stop-btn.reset-mode { background: linear-gradient(135deg, var(--reset-color), #e0a800); color: #000;}
+        #stop-btn.reset-mode:hover { background: linear-gradient(135deg, #e0a800, var(--reset-color)); }
+        .sim-button:disabled { background: linear-gradient(135deg, #6c757d, #5a6268); cursor: not-allowed; transform: none; }
 
         canvas { 
-            border: 1px solid var(--border-color); 
-            background-color: var(--panel-background); 
+            border: 2px solid var(--primary-color); 
+            background-color: #1a1a2e; 
             width: 100%; 
             height: auto;
-            aspect-ratio: 1200 / 600;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px var(--shadow-color);
+            aspect-ratio: 16 / 9;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Stats Cards */
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+        .stat-card.bottleneck {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 6px 16px rgba(0,0,0,0.2); }
+            50% { box-shadow: 0 6px 24px rgba(245, 87, 108, 0.5), 0 0 30px rgba(245, 87, 108, 0.3); }
+        }
+        .stat-card.smooth {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        .stat-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.85em;
+            font-weight: 700;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-card .value {
+            font-size: 1.8em;
+            font-weight: 800;
+            margin: 5px 0;
+        }
+        .stat-card .label {
+            font-size: 0.8em;
+            opacity: 0.85;
+        }
+        
+        /* Charts */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .chart-container {
+            background: white;
+            padding: 12px;
+            border-radius: 10px;
+            border: 2px solid var(--primary-color);
+            height: 280px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .chart-container h3 {
+            margin: 0 0 10px 0;
+            font-size: 0.95em;
+            color: var(--primary-color);
+            text-align: center;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
        
-        #results-table { width: 100%; border-collapse: collapse; }
-        #results-table th, #results-table td { border-bottom: 1px solid var(--border-color); padding: 10px 8px; text-align: right; font-size: 0.9em; }
-        #results-table th { background-color: #f8f9fa; font-weight: 600; color: var(--label-color); text-align: center; }
+        #results-table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+        #results-table th, #results-table td { border-bottom: 1px solid var(--border-color); padding: 12px 10px; text-align: right; font-size: 0.9em; }
+        #results-table th { 
+            background: linear-gradient(135deg, var(--primary-color), #0a58ca); 
+            color: white;
+            font-weight: 700; 
+            text-align: center; 
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.85em;
+        }
         #results-table tr:last-child td { border-bottom: none; }
-        #results-table td:first-child { text-align: left; font-weight: 500; }
-        .overall-stats { text-align: center; font-size: 1.1em; margin-top: 20px; padding-top: 15px; border-top: 2px solid var(--primary-color); }
+        #results-table td:first-child { text-align: left; font-weight: 600; color: var(--primary-color); }
+        #results-table tbody tr:hover { background-color: #f0f7ff; }
+        #results-table tr.bottleneck-row { background-color: #ffe6e6; }
+        #results-table tr.bottleneck-row:hover { background-color: #ffd6d6; }
+        #results-table tr.smooth-row { background-color: #e6f7e6; }
+        #results-table tr.smooth-row:hover { background-color: #d6edd6; }
+        .overall-stats { 
+            text-align: center; 
+            font-size: 1.3em; 
+            margin-top: 20px; 
+            padding: 20px; 
+            background: linear-gradient(135deg, var(--primary-color), #0a58ca);
+            color: white;
+            border-radius: 10px;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* Legend */
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 25px;
+            margin-top: 12px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 6px 12px;
+            border-radius: 20px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+        .legend-box {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        #simulation-container {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid var(--primary-color);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Analytics Tab Layout */
+        #analytics-tab {
+            padding: 15px 30px;
+        }
+        
+        #analytics-tab h2 {
+            margin-bottom: 12px;
+        }
+        
+        /* Results Tab Layout */
+        #results-tab {
+            padding: 20px 30px;
+        }
+        
+        /* Settings Tab Layout */
+        #settings-tab {
+            padding: 15px 30px;
+        }
+        
+        /* Custom Scrollbar */
+        .tab-content::-webkit-scrollbar {
+            width: 12px;
+        }
+        .tab-content::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .tab-content::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 6px;
+        }
+        .tab-content::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #764ba2, #667eea);
+        }
+        
+        /* Smooth scrolling */
+        .tab-content {
+            scroll-behavior: smooth;
+        }
     </style>
 </head>
 <body>
     <div class="main-container">
-        <div id="control-panel">
-            <h2>Simulation Controls</h2>
-            <div class="config-grid">
-                <fieldset>
-                    <legend>Arrival Schedule & Speed</legend>
-                    <div class="input-group">
-                        <label for="total-trucks-day">Total Trucks per Day</label>
-                        <input type="number" id="total-trucks-day" value="300" min="1">
+        <div class="tab-container">
+            <!-- Tab Navigation -->
+            <div class="tab-navigation">
+                <button class="tab-button active" onclick="switchTab('settings')">⚙️ Settings</button>
+                <button class="tab-button" onclick="switchTab('analytics')">📊 Real-Time Analytics</button>
+                <button class="tab-button" onclick="switchTab('results')">📋 Results</button>
+            </div>
+
+            <!-- Tab 1: Settings -->
+            <div id="settings-tab" class="tab-content active">
+                <div id="control-panel">
+                    <h2>⚙️ Simulation Configuration</h2>
+                    <div class="config-grid">
+                        <fieldset>
+                            <legend>Arrival Schedule & Speed</legend>
+                            <div class="input-group">
+                                <label for="total-trucks-day">Total Trucks per Day</label>
+                                <input type="number" id="total-trucks-day" value="300" min="1">
+                            </div>
+                            <div class="input-group">
+                                <label for="distribution-type">Arrival Distribution</label>
+                                <select id="distribution-type">
+                                    <option value="even">Evenly Distributed</option>
+                                    <option value="wave" selected>Wave Pattern</option>
+                                    <option value="spike">Morning Spike</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Operating Hours (24h format)</label>
+                                <div class="hour-inputs">
+                                    <input type="number" id="opening-hour" value="6" min="0" max="23" title="Opening Hour">
+                                    <input type="number" id="closing-hour" value="20" min="1" max="24" title="Closing Hour">
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <label for="speed-multiplier">Simulation Speed</label>
+                                <select id="speed-multiplier"></select>
+                            </div>
+                            <div class="input-group">
+                                <label>Generated Hourly Schedule:</label>
+                                <div id="schedule-display"></div>
+                            </div>
+                        </fieldset>
+
+                        <fieldset>
+                            <legend>Branching & Travel Times (mins)</legend>
+                            <div class="input-group">
+                                <label for="branch-self-access-arrival-success">Self Access Arrival Success Rate (%)</label>
+                                <input type="number" id="branch-self-access-arrival-success" value="80" min="0" max="100">
+                            </div>
+                            <div class="input-group">
+                                <label for="branch-arrival-success">Self Arrival Success Rate (%)</label>
+                                <input type="number" id="branch-arrival-success" value="95" min="0" max="100">
+                            </div>
+                            <div class="input-group">
+                                <label for="branch-departure-success">Self Departure Success Rate (%)</label>
+                                <input type="number" id="branch-departure-success" value="98" min="0" max="100">
+                            </div>
+                            <div class="input-group">
+                                <label for="branch-self-access-departure-success">Self Access Departure Success Rate (%)</label>
+                                <input type="number" id="branch-self-access-departure-success" value="90" min="0" max="100">
+                            </div>
+                            <hr style="border: 1px solid #eee; margin: 15px 0;">
+                            <div class="input-group">
+                                <label for="tt-to-access_control_arrival">Travel to Access Control Arrival</label>
+                                <input type="number" id="tt-to-access_control_arrival" value="2" min="0" step="0.5">
+                            </div>
+                            <div class="input-group">
+                                <label for="tt-to-self_arrival_handling">Travel to Self Arrival Handling</label>
+                                <input type="number" id="tt-to-self_arrival_handling" value="1.5" min="0" step="0.5">
+                            </div>
+                            <div class="input-group">
+                                <label for="tt-to-execution">Travel to Execution</label>
+                                <input type="number" id="tt-to-execution" value="3" min="0" step="0.5">
+                            </div>
+                            <div class="input-group">
+                                <label for="tt-to-self_departure_handling">Travel to Self Departure Handling</label>
+                                <input type="number" id="tt-to-self_departure_handling" value="2" min="0" step="0.5">
+                            </div>
+                            <div class="input-group">
+                                <label for="tt-to-self_access_control_departure">Travel to Self Access Departure</label>
+                                <input type="number" id="tt-to-self_access_control_departure" value="1.5" min="0" step="0.5">
+                            </div>
+                            <div class="input-group">
+                                <label for="tt-to-access_control_departure">Travel to Access Control Departure</label>
+                                <input type="number" id="tt-to-access_control_departure" value="1" min="0" step="0.5">
+                            </div>
+                        </fieldset>
+
+                        <fieldset>
+                            <legend>Servers & Service Times (mins)</legend>
+                            <div id="server-config-container">
+                                <!-- Server inputs will be generated by JS -->
+                            </div>
+                        </fieldset>
                     </div>
-                    <div class="input-group">
-                        <label for="distribution-type">Arrival Distribution</label>
-                        <select id="distribution-type">
-                            <option value="even">Evenly Distributed</option>
-                            <option value="wave" selected>Wave Pattern</option>
-                            <option value="spike">Morning Spike</option>
-                        </select>
+                    <div class="button-container">
+                        <button id="start-btn" class="sim-button">Start</button>
+                        <button id="stop-btn" class="sim-button" disabled>Stop</button>
                     </div>
-                    <div class="input-group">
-                        <label>Operating Hours (24h format)</label>
-                        <div class="hour-inputs">
-                            <input type="number" id="opening-hour" value="6" min="0" max="23" title="Opening Hour">
-                            <input type="number" id="closing-hour" value="20" min="1" max="24" title="Closing Hour">
+                </div>
+            </div>
+
+            <!-- Tab 2: Real-Time Analytics -->
+            <div id="analytics-tab" class="tab-content">
+                <h2 style="text-align: center; color: var(--primary-color); margin-top: 0; font-size: 1.8em; font-weight: 700;">📊 Real-Time Analytics & Visualization</h2>
+                
+                <!-- Stats Cards -->
+                <div class="stats-cards" id="stats-cards">
+                    <!-- Will be populated by JS -->
+                </div>
+
+                <!-- Simulation Canvas -->
+                <div id="simulation-container">
+                    <canvas id="simulationCanvas" width="1200" height="600"></canvas>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-box" style="background-color: #5DADE2;"></div>
+                            <span>Traveling</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box" style="background-color: #2ECC71;"></div>
+                            <span>In Service</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box" style="background-color: #F1C40F;"></div>
+                            <span>Queuing</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box" style="background-color: #E74C3C;"></div>
+                            <span>Bottleneck</span>
                         </div>
                     </div>
-                     <div class="input-group">
-                        <label for="speed-multiplier">Simulation Speed</label>
-                        <select id="speed-multiplier"></select>
+                </div>
+                
+                <!-- Charts Panel -->
+                <div id="charts-panel" style="margin-top: 20px;">
+                    <h2>Performance Charts</h2>
+                    <div class="charts-grid">
+                        <div class="chart-container">
+                            <h3>Queue Lengths Over Time</h3>
+                            <canvas id="queueChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h3>Server Utilization</h3>
+                            <canvas id="utilizationChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h3>Throughput Over Time</h3>
+                            <canvas id="throughputChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h3>Average Wait Times</h3>
+                            <canvas id="waitTimeChart"></canvas>
+                        </div>
                     </div>
-                    <div class="input-group">
-                        <label>Generated Hourly Schedule:</label>
-                        <div id="schedule-display"></div>
-                    </div>
-                </fieldset>
-
-                <fieldset>
-                    <legend>Branching & Travel Times (mins)</legend>
-                    <!-- Branching Success Rates -->
-                    <div class="input-group">
-                        <label for="branch-self-access-arrival-success">Self Access Arrival Success Rate (%)</label>
-                        <input type="number" id="branch-self-access-arrival-success" value="80" min="0" max="100">
-                    </div>
-                    <div class="input-group">
-                        <label for="branch-arrival-success">Self Arrival Success Rate (%)</label>
-                        <input type="number" id="branch-arrival-success" value="95" min="0" max="100">
-                    </div>
-                    <div class="input-group">
-                        <label for="branch-departure-success">Self Departure Success Rate (%)</label>
-                        <input type="number" id="branch-departure-success" value="98" min="0" max="100">
-                    </div>
-                    <!-- NEW: Self Access Departure Success Rate -->
-                    <div class="input-group">
-                        <label for="branch-self-access-departure-success">Self Access Departure Success Rate (%)</label>
-                        <input type="number" id="branch-self-access-departure-success" value="90" min="0" max="100">
-                    </div>
-                     <hr style="border: 1px solid #eee; margin: 15px 0;">
-                    <!-- Travel Times -->
-                    <div class="input-group">
-                        <label for="tt-to-access_control_arrival">Travel to Access Control Arrival</label>
-                        <input type="number" id="tt-to-access_control_arrival" value="2" min="0" step="0.5">
-                    </div>
-                     <div class="input-group">
-                        <label for="tt-to-self_arrival_handling">Travel to Self Arrival Handling</label>
-                        <input type="number" id="tt-to-self_arrival_handling" value="1.5" min="0" step="0.5">
-                    </div>
-                    <div class="input-group">
-                        <label for="tt-to-execution">Travel to Execution</label>
-                        <input type="number" id="tt-to-execution" value="3" min="0" step="0.5">
-                    </div>
-                    <div class="input-group">
-                        <label for="tt-to-self_departure_handling">Travel to Self Departure Handling</label>
-                        <input type="number" id="tt-to-self_departure_handling" value="2" min="0" step="0.5">
-                    </div>
-                     <div class="input-group">
-                        <label for="tt-to-self_access_control_departure">Travel to Self Access Departure</label>
-                        <input type="number" id="tt-to-self_access_control_departure" value="1.5" min="0" step="0.5">
-                    </div>
-                    <div class="input-group">
-                        <label for="tt-to-access_control_departure">Travel to Access Control Departure</label>
-                        <input type="number" id="tt-to-access_control_departure" value="1" min="0" step="0.5">
-                    </div>
-                </fieldset>
-
-                <fieldset>
-                    <legend>Servers & Service Times (mins)</legend>
-                    <div id="server-config-container">
-                        <!-- Server inputs will be generated by JS -->
-                    </div>
-                </fieldset>
+                </div>
             </div>
-            <div class="button-container">
-                <button id="start-btn" class="sim-button">Start</button>
-                <button id="stop-btn" class="sim-button" disabled>Stop</button>
-            </div>
-        </div>
 
-        <div id="simulation-container">
-            <canvas id="simulationCanvas" width="1200" height="600"></canvas>
-        </div>
-        
-        <div id="results-panel">
-            <h2>Results</h2>
-            <table id="results-table">
-                <thead>
-                    <tr>
-                        <th>Server Point</th>
-                        <th>Queue</th>
-                        <th>Max Q</th>
-                        <th>Avg Wait (m)</th>
-                        <th>Max Wait (m)</th>
-                        <th>Avg Svc (m)</th>
-                        <th>Util (24h)%</th>
-                        <th>Util (Open)%</th>
-                        <th>Processed</th>
-                    </tr>
-                </thead>
-                <tbody id="results-body">
-                    <!-- Results rows will be generated by JS -->
-                </tbody>
-            </table>
-            <div class="overall-stats"><strong>Overall Avg. Turnaround Time: </strong><span id="avg-turnaround-time">0.00</span> hours</div>
+            <!-- Tab 3: Results -->
+            <div id="results-tab" class="tab-content">
+                <div id="results-panel">
+                    <h2>📋 Detailed Performance Results</h2>
+                    <table id="results-table">
+                        <thead>
+                            <tr>
+                                <th>Server Point</th>
+                                <th>Queue</th>
+                                <th>Max Q</th>
+                                <th>Avg Wait (m)</th>
+                                <th>Max Wait (m)</th>
+                                <th>Avg Svc (m)</th>
+                                <th>Utilization %</th>
+                                <th>Processed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                            <!-- Results rows will be generated by JS -->
+                        </tbody>
+                    </table>
+                    <div class="overall-stats"><strong>Overall Avg. Turnaround Time: </strong><span id="avg-turnaround-time">0.00</span> hours</div>
+                </div>
+            </div>
         </div>
     </div>
+    
     <script src="simulation.js"></script>
 </body>
 </html>

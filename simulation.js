@@ -454,152 +454,256 @@ function updateStatsCards() {
     `;
 }
 
+/**
+ * NEW: Draws a more detailed and modern truck shape on the canvas.
+ * This replaces the old simple rectangle with a more recognizable silhouette.
+ */
 function drawTruck(x, y, rotation, status) {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rotation);
-    
-    const truckWidth = 24;
-    const truckHeight = 12;
-    
-    // Enhanced colors with glow effects
-    if (status === 'in_service') {
-         ctx.fillStyle = '#2ECC71'; 
-         ctx.shadowColor = '#58D68D';
-         ctx.shadowBlur = 15;
-    } else if (status === 'queuing') {
-         ctx.fillStyle = '#F1C40F';
-         ctx.shadowColor = '#F4D03F';
-         ctx.shadowBlur = 10;
-    } else {
-         ctx.fillStyle = '#5DADE2'; 
-         ctx.shadowColor = '#85C1E9';
-         ctx.shadowBlur = 8;
-    }
-    
-    ctx.fillRect(-truckWidth / 2, -truckHeight / 2, truckWidth, truckHeight);
-    
-    ctx.fillStyle = '#34495E';
-    ctx.fillRect(truckWidth / 2 - 8, -truckHeight / 2, 8, truckHeight);
 
-    ctx.fillStyle = '#2C3E50';
-    ctx.fillRect(-truckWidth/2 + 2, -truckHeight/2 - 2, 6, 2); 
-    ctx.fillRect(-truckWidth/2 + 2, truckHeight/2, 6, 2); 
-    ctx.fillRect(truckWidth/2 - 8, -truckHeight/2 - 2, 6, 2); 
-    ctx.fillRect(truckWidth/2 - 8, truckHeight/2, 6, 2); 
+    const truckWidth = 28;
+    const truckHeight = 14;
+    const cabWidth = 10;
+    const cabHeight = 12;
+    const wheelRadius = 3;
+
+    // Set colors and shadows based on status
+    let baseColor, shadowColor;
+    if (status === 'in_service') {
+        baseColor = '#2ecc71'; // Green
+        shadowColor = '#58D68D';
+    } else if (status === 'queuing') {
+        baseColor = '#f1c40f'; // Yellow
+        shadowColor = '#F4D03F';
+    } else {
+        baseColor = '#5dade2'; // Blue
+        shadowColor = '#85C1E9';
+    }
+
+    ctx.shadowColor = shadowColor;
+    ctx.shadowBlur = 15;
+
+    // Trailer
+    ctx.fillStyle = baseColor;
+    ctx.beginPath();
+    // Use a polyfill or simple rect if roundRect isn't supported, but modern browsers are fine.
+    if (ctx.roundRect) {
+        ctx.roundRect(-truckWidth / 2, -truckHeight / 2, truckWidth - cabWidth + 2, truckHeight, [4]);
+    } else {
+        ctx.fillRect(-truckWidth / 2, -truckHeight / 2, truckWidth - cabWidth + 2, truckHeight);
+    }
+    ctx.fill();
+
+    // Cab
+    ctx.fillStyle = '#34495e';
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(truckWidth / 2 - cabWidth, -cabHeight / 2, cabWidth, cabHeight, [0, 4, 4, 0]);
+    } else {
+        ctx.fillRect(truckWidth / 2 - cabWidth, -cabHeight / 2, cabWidth, cabHeight);
+    }
+    ctx.fill();
+
+    // Reset shadow for smaller details
+    ctx.shadowBlur = 0;
+
+    // Wheels
+    ctx.fillStyle = '#2c3e50';
+    ctx.beginPath();
+    ctx.arc(-truckWidth / 2 + 5, truckHeight / 2 + wheelRadius - 2, wheelRadius, 0, Math.PI * 2);
+    ctx.arc(truckWidth / 2 - cabWidth - 5, truckHeight / 2 + wheelRadius - 2, wheelRadius, 0, Math.PI * 2);
+    ctx.arc(truckWidth / 2 - 4, truckHeight / 2 + wheelRadius - 2, wheelRadius, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
-    ctx.shadowBlur = 0; 
 }
 
+/**
+ * NEW: A completely overhauled drawing function for a modern, dynamic visualization.
+ * Features include a grid background, glowing paths, animated server points,
+ * and a cleaner information display.
+ */
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Dark gradient background to match container
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, '#1a1a2e');
-    gradient.addColorStop(1, '#16213e');
+
+    // --- 1. Modern Background ---
+    const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 50, canvas.width / 2, canvas.height / 2, canvas.width);
+    gradient.addColorStop(0, '#1c2a48');
+    gradient.addColorStop(1, '#111827');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
+
+    // Draw a subtle grid
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < canvas.width; i += 40) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+    }
+    for (let i = 0; i < canvas.height; i += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(canvas.width, i);
+        ctx.stroke();
+    }
+
     const p = serverPoints;
     const bottlenecks = getBottlenecks();
     const bottleneckNames = bottlenecks.map(b => b.name);
-    
-    // Draw paths with dynamic styling
-    ctx.lineWidth = 2; 
-    ctx.setLineDash([5, 5]);
-    
-    // Helper to draw path with color
-    const drawColoredPath = (from, to, isBottleneck) => {
-        ctx.strokeStyle = isBottleneck ? 'rgba(231, 76, 60, 0.4)' : 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = isBottleneck ? 3 : 2;
+
+    // --- 2. Improved Paths ---
+    ctx.save();
+    const drawModernConnection = (from, to, isBottleneck) => {
+        if (!from || !to) return;
         ctx.beginPath();
         ctx.moveTo(from.x, from.y);
         ctx.lineTo(to.x, to.y);
+
+        ctx.lineWidth = isBottleneck ? 2.5 : 1.5;
+        ctx.strokeStyle = isBottleneck ? 'rgba(231, 76, 60, 0.6)' : 'rgba(255, 255, 255, 0.25)';
+        ctx.shadowColor = isBottleneck ? '#e74c3c' : '#5dade2';
+        ctx.shadowBlur = isBottleneck ? 10 : 4;
         ctx.stroke();
     };
     
-    // Arrival Flow
-    drawColoredPath(p.self_access_control_arrival, p.self_arrival_handling, bottleneckNames.includes('self_arrival_handling'));
-    drawColoredPath(p.self_access_control_arrival, p.access_control_arrival, bottleneckNames.includes('access_control_arrival'));
-    drawColoredPath(p.access_control_arrival, p.self_arrival_handling, bottleneckNames.includes('self_arrival_handling'));
-    drawColoredPath(p.self_arrival_handling, p.execution, bottleneckNames.includes('execution'));
-    drawColoredPath(p.self_arrival_handling, p.arrival_handling, bottleneckNames.includes('arrival_handling'));
-    drawColoredPath(p.arrival_handling, p.execution, bottleneckNames.includes('execution'));
+    // Explicitly draw all visual connections, including intermediate points for "curved" paths.
+    drawModernConnection(p.self_access_control_arrival, p.self_arrival_handling, bottleneckNames.includes('self_arrival_handling'));
+    drawModernConnection(p.self_access_control_arrival, p.access_control_arrival, bottleneckNames.includes('access_control_arrival'));
+    const access_to_self_arrival_intermediate = pathDefinitions['access_control_arrival->self_arrival_handling'][0];
+    drawModernConnection(p.access_control_arrival, access_to_self_arrival_intermediate, bottleneckNames.includes('self_arrival_handling'));
+    drawModernConnection(access_to_self_arrival_intermediate, p.self_arrival_handling, bottleneckNames.includes('self_arrival_handling'));
     
-    // Departure Flow
-    drawColoredPath(p.execution, p.self_departure_handling, bottleneckNames.includes('self_departure_handling'));
-    drawColoredPath(p.self_departure_handling, p.self_access_control_departure, bottleneckNames.includes('self_access_control_departure'));
-    drawColoredPath(p.self_departure_handling, p.departure_handling, bottleneckNames.includes('departure_handling'));
-    drawColoredPath(p.departure_handling, p.self_access_control_departure, bottleneckNames.includes('self_access_control_departure'));
-    drawColoredPath(p.self_access_control_departure, p.access_control_departure, bottleneckNames.includes('access_control_departure'));
-    
-    ctx.setLineDash([]); 
-    
-    // Draw server points with enhanced visuals
+    drawModernConnection(p.self_arrival_handling, p.execution, bottleneckNames.includes('execution'));
+    drawModernConnection(p.self_arrival_handling, p.arrival_handling, bottleneckNames.includes('arrival_handling'));
+    const arrival_to_exec_intermediate = pathDefinitions['arrival_handling->execution'][0];
+    drawModernConnection(p.arrival_handling, arrival_to_exec_intermediate, bottleneckNames.includes('execution'));
+    drawModernConnection(arrival_to_exec_intermediate, p.execution, bottleneckNames.includes('execution'));
+
+    drawModernConnection(p.execution, p.self_departure_handling, bottleneckNames.includes('self_departure_handling'));
+    drawModernConnection(p.self_departure_handling, p.self_access_control_departure, bottleneckNames.includes('self_access_control_departure'));
+    drawModernConnection(p.self_departure_handling, p.departure_handling, bottleneckNames.includes('departure_handling'));
+    const departure_to_self_access_intermediate = pathDefinitions['departure_handling->self_access_control_departure'][0];
+    drawModernConnection(p.departure_handling, departure_to_self_access_intermediate, bottleneckNames.includes('self_access_control_departure'));
+    drawModernConnection(departure_to_self_access_intermediate, p.self_access_control_departure, bottleneckNames.includes('self_access_control_departure'));
+
+    drawModernConnection(p.self_access_control_departure, p.access_control_departure, bottleneckNames.includes('access_control_departure'));
+    ctx.restore();
+
+
+    // --- 3. Enhanced Server Points ---
     PROCESS_FLOW.forEach(pointName => {
-        const point = serverPoints[pointName]; 
+        const point = serverPoints[pointName];
         if (!point) return;
-        
+
         const isBottleneck = bottleneckNames.includes(pointName);
-        
-        // Draw node
-        ctx.beginPath(); 
-        ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI); 
-        ctx.fillStyle = isBottleneck ? 'rgba(231, 76, 60, 0.8)' : 'rgba(255, 255, 255, 0.8)'; 
-        ctx.fill();
-        
-        // Draw queue indicator
-        if (point.queue.length > 0) {
-            const baseRadius = 10; 
-            const radius = baseRadius + (point.queue.length * 2.5);
-            ctx.beginPath(); 
-            ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
-            
-            const alpha = isBottleneck ? 0.4 + (Math.sin(simulationTime / 10) * 0.2) : 0.3 + (Math.sin(simulationTime / 15) * 0.1);
-            const color = isBottleneck ? '231, 76, 60' : '241, 196, 15';
-            ctx.fillStyle = `rgba(${color}, ${alpha})`; 
+        const hasActiveServer = point.servers.some(s => s.busy);
+
+        // Pulsating glow for active (but not bottlenecked) stations
+        if (hasActiveServer && !isBottleneck) {
+            const pulseRadius = 15 + Math.sin(simulationTime / 15) * 5;
+            const pulseAlpha = 0.2 + Math.sin(simulationTime / 15) * 0.2;
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, pulseRadius, 0, 2 * Math.PI);
+            ctx.fillStyle = `rgba(93, 173, 226, ${pulseAlpha})`;
             ctx.fill();
-            
-            // Queue number
-            ctx.fillStyle = isBottleneck ? '#E74C3C' : 'white'; 
-            ctx.font = `bold ${10 + point.queue.length}px Arial`; 
-            ctx.textAlign = 'center'; 
+        }
+
+        // Draw queue indicator (pulsating ring)
+        if (point.queue.length > 0) {
+            const baseRadius = 20;
+            const radius = baseRadius + (point.queue.length * 1.5);
+            const alpha = 0.4 + (Math.sin(simulationTime / 10) * 0.2);
+            const color = isBottleneck ? '231, 76, 60' : '241, 196, 15';
+
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+            ctx.strokeStyle = `rgba(${color}, ${alpha})`;
+            ctx.lineWidth = 4 + (point.queue.length * 0.2);
+            ctx.stroke();
+        }
+
+        // Central node
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 10, 0, 2 * Math.PI);
+        ctx.fillStyle = isBottleneck ? '#e74c3c' : hasActiveServer ? '#5dade2' : '#34495e';
+        ctx.strokeStyle = isBottleneck ? 'rgba(255,255,255,0.8)' : 'rgba(93, 173, 226, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.fill();
+        ctx.stroke();
+
+        // Queue number inside the node
+        if (point.queue.length > 0) {
+            ctx.fillStyle = 'white';
+            ctx.font = `bold ${10 + point.queue.length * 0.5}px Arial`;
+            ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(point.queue.length, point.x, point.y);
         }
-        
-        // Draw label
+
+        // Label below the node
         const displayName = capitalizeWords(point.name);
-        ctx.fillStyle = isBottleneck ? '#E74C3C' : '#FFFFFF'; 
-        ctx.font = isBottleneck ? 'bold 13px Arial' : '13px Arial'; 
-        ctx.textAlign = 'center'; 
-        ctx.fillText(displayName, point.x, point.y + 30);
+        ctx.fillStyle = isBottleneck ? '#f5b7b1' : '#aeb6bf';
+        ctx.font = '13px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(displayName, point.x, point.y + 28);
+        
+        // Server status indicators (dots above the node)
+        const numServers = point.servers.length;
+        const indicatorRadius = 3;
+        const totalWidth = (numServers - 1) * (indicatorRadius * 2 + 4);
+        for (let i = 0; i < numServers; i++) {
+            const xPos = point.x - totalWidth / 2 + i * (indicatorRadius * 2 + 4);
+            const yPos = point.y - 20;
+            ctx.beginPath();
+            ctx.arc(xPos, yPos, indicatorRadius, 0, Math.PI * 2);
+            ctx.fillStyle = point.servers[i].busy ? '#2ecc71' : '#566573';
+            ctx.fill();
+        }
     });
-    
-    // Draw trucks
+
+    // --- 4. Draw Trucks ---
     trucks.forEach(truck => {
         if (truck.status !== 'queuing') {
             drawTruck(truck.x, truck.y, truck.rotation, truck.status);
         }
     });
 
-    // Draw time and status
-    ctx.textAlign = 'left'; 
-    ctx.textBaseline = 'top'; 
-    ctx.font = 'bold 16px Arial'; 
-    ctx.fillStyle = 'white';
-    const totalSeconds = Math.floor(simulationTime / TICKS_PER_SECOND); 
-    const day = Math.floor(totalSeconds / SECONDS_PER_DAY); 
-    const hour = Math.floor((totalSeconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR); 
-    const minute = Math.floor((totalSeconds % SECONDS_PER_HOUR) / 60); 
+    // --- 5. Improved Info Display ---
+    const totalSeconds = Math.floor(simulationTime / TICKS_PER_SECOND);
+    const day = Math.floor(totalSeconds / SECONDS_PER_DAY);
+    const hour = Math.floor((totalSeconds % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+    const minute = Math.floor((totalSeconds % SECONDS_PER_HOUR) / 60);
     const timeString = `Day ${day}, ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-    ctx.fillText(timeString, 10, 15);
-    
     const isOpen = (hour >= PARAMS.OPENING_HOUR && hour < PARAMS.CLOSING_HOUR);
-    ctx.font = 'bold 14px Arial'; 
-    ctx.fillStyle = isOpen ? '#2ECC71' : '#E74C3C';
-    ctx.fillText(isOpen ? 'ACCEPTING ARRIVALS' : 'CLOSED FOR NEW ARRIVALS', 10, 35);
+    const statusString = isOpen ? 'ACCEPTING ARRIVALS' : 'CLOSED FOR NEW ARRIVALS';
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(27, 38, 59, 0.7)';
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(5, 5, 250, 60, [8]);
+    } else {
+        ctx.rect(5, 5, 250, 60);
+    }
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(93, 173, 226, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = 'white';
+    ctx.fillText(timeString, 15, 15);
+
+    ctx.font = 'bold 14px Arial';
+    ctx.fillStyle = isOpen ? '#2ecc71' : '#e74c3c';
+    ctx.fillText(statusString, 15, 40);
+    ctx.restore();
 }
 
 function updateCharts() {
